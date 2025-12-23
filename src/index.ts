@@ -301,59 +301,6 @@ class GoogleDriveMCPServer {
             required: ["name", "content"],
           },
         },
-        {
-          name: "setup_credentials",
-          description:
-            "Configure Google Drive API credentials (Client ID, Client Secret, and optional Refresh Token).",
-          inputSchema: {
-            type: "object",
-            properties: {
-              clientId: {
-                type: "string",
-                description: "Google OAuth Client ID",
-              },
-              clientSecret: {
-                type: "string",
-                description: "Google OAuth Client Secret",
-              },
-              redirectUri: {
-                type: "string",
-                description:
-                  "OAuth Redirect URI (default: urn:ietf:wg:oauth:2.0:oob)",
-                default: "urn:ietf:wg:oauth:2.0:oob",
-              },
-              refreshToken: {
-                type: "string",
-                description: "Optional OAuth Refresh Token",
-              },
-            },
-            required: ["clientId", "clientSecret"],
-          },
-        },
-        {
-          name: "get_auth_url",
-          description:
-            "Get the OAuth authorization URL to obtain access. User must visit this URL to grant permissions.",
-          inputSchema: {
-            type: "object",
-            properties: {},
-          },
-        },
-        {
-          name: "set_auth_code",
-          description:
-            "Exchange the authorization code for a refresh token after user grants permissions.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              code: {
-                type: "string",
-                description: "Authorization code from OAuth consent",
-              },
-            },
-            required: ["code"],
-          },
-        },
       ];
 
       return { tools };
@@ -363,20 +310,7 @@ class GoogleDriveMCPServer {
       try {
         const { name, arguments: args } = request.params;
 
-        // Allow setup commands without auth
-        if (name === "setup_credentials") {
-          return await this.handleSetupCredentials(args as any);
-        }
-
-        if (name === "get_auth_url") {
-          return await this.handleGetAuthUrl();
-        }
-
-        if (name === "set_auth_code") {
-          return await this.handleSetAuthCode(args as any);
-        }
-
-        // Initialize auth for other commands
+        // Initialize auth
         if (!this.auth || !this.drive) {
           await this.initializeAuth();
         }
@@ -422,96 +356,6 @@ class GoogleDriveMCPServer {
         };
       }
     });
-  }
-
-  private async handleSetupCredentials(args: {
-    clientId: string;
-    clientSecret: string;
-    redirectUri?: string;
-    refreshToken?: string;
-  }) {
-    const config: GoogleDriveConfig = {
-      clientId: args.clientId,
-      clientSecret: args.clientSecret,
-      redirectUri: args.redirectUri || "urn:ietf:wg:oauth:2.0:oob",
-      refreshToken: args.refreshToken,
-    };
-
-    await this.saveConfig(config);
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: args.refreshToken
-            ? "Credentials saved successfully! You can now use Google Drive tools."
-            : "Credentials saved! Next, use get_auth_url to get the authorization URL.",
-        },
-      ],
-    };
-  }
-
-  private async handleGetAuthUrl() {
-    const config = await this.loadConfig();
-    if (!config) {
-      throw new Error("Please setup credentials first using setup_credentials");
-    }
-
-    const auth = new google.auth.OAuth2(
-      config.clientId,
-      config.clientSecret,
-      config.redirectUri,
-    );
-
-    const authUrl = auth.generateAuthUrl({
-      access_type: "offline",
-      scope: [
-        "https://www.googleapis.com/auth/drive",
-        "https://www.googleapis.com/auth/documents",
-        "https://www.googleapis.com/auth/spreadsheets",
-      ],
-      prompt: "consent",
-    });
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Please visit this URL to authorize access:\n\n${authUrl}\n\nAfter authorizing, you'll receive a code. Use set_auth_code with that code.`,
-        },
-      ],
-    };
-  }
-
-  private async handleSetAuthCode(args: { code: string }) {
-    const config = await this.loadConfig();
-    if (!config) {
-      throw new Error("Please setup credentials first using setup_credentials");
-    }
-
-    const auth = new google.auth.OAuth2(
-      config.clientId,
-      config.clientSecret,
-      config.redirectUri,
-    );
-
-    const { tokens } = await auth.getToken(args.code);
-
-    if (!tokens.refresh_token) {
-      throw new Error("No refresh token received. Please try again.");
-    }
-
-    config.refreshToken = tokens.refresh_token;
-    await this.saveConfig(config);
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: "Authorization successful! Google Drive is now ready to use.",
-        },
-      ],
-    };
   }
 
   private async handleListFiles(args: {
