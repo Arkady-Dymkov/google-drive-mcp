@@ -12,6 +12,8 @@ import { OAuth2Client } from "google-auth-library";
 import * as fs from "fs";
 import * as path from "path";
 import { homedir } from "os";
+import fetch from "node-fetch";
+import * as cheerio from "cheerio";
 
 // Google Drive MIME types
 const MIME_TYPES = {
@@ -178,6 +180,21 @@ class GoogleDriveMCPServer {
           },
         },
         {
+          name: "read_restricted_document",
+          description:
+            "Read a restricted/protected Google Doc that cannot be accessed via the API. Uses the mobilebasic endpoint to extract content. Use this when read_document fails with permission errors or returns incomplete content.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              documentId: {
+                type: "string",
+                description: "The ID of the Google Doc to read",
+              },
+            },
+            required: ["documentId"],
+          },
+        },
+        {
           name: "read_spreadsheet",
           description:
             "Read data from a Google Sheet with sheet names and cell values.",
@@ -322,6 +339,8 @@ class GoogleDriveMCPServer {
             return await this.handleReadFile(args as any);
           case "read_document":
             return await this.handleReadDocument(args as any);
+          case "read_restricted_document":
+            return await this.handleReadRestrictedDocument(args as any);
           case "read_spreadsheet":
             return await this.handleReadSpreadsheet(args as any);
           case "search_files":
@@ -485,6 +504,82 @@ class GoogleDriveMCPServer {
         {
           type: "text",
           text: `Document: ${title}\n\n${text}`,
+        },
+      ],
+    };
+  }
+
+  private async handleReadRestrictedDocument(args: { documentId: string }) {
+    // Get access token for authorization
+    const accessToken = await this.auth!.getAccessToken();
+
+    if (!accessToken.token) {
+      throw new Error("Failed to obtain access token");
+    }
+
+    // Fetch the mobilebasic version of the document
+    const url = `https://docs.google.com/document/d/${args.documentId}/mobilebasic`;
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${accessToken.token}`,
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch document: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    const html = await response.text();
+
+    // Parse HTML to extract content
+    const $ = cheerio.load(html);
+
+    // Extract title - try multiple selectors
+    let title =
+      $("title").text().trim() ||
+      $("h1").first().text().trim() ||
+      "Untitled Document";
+
+    // Remove " - Google Docs" suffix if present
+    title = title.replace(/ - Google Docs$/i, "").trim();
+
+    // Extract main content - mobilebasic has content in specific divs
+    let content = "";
+
+    // Try to find main content container
+    const mainContent = $(".doc-content, .document-content, #contents, main");
+    if (mainContent.length > 0) {
+      content = mainContent.text().trim();
+    } else {
+      // Fallback: extract all paragraphs
+      const paragraphs: string[] = [];
+      $("p").each((i, elem) => {
+        const text = $(elem).text().trim();
+        if (text && text.length > 0) {
+          paragraphs.push(text);
+        }
+      });
+      content = paragraphs.join("\n\n");
+    }
+
+    // If still no content, try body text
+    if (!content || content.length < 100) {
+      content = $("body").text().trim();
+    }
+
+    // Clean up excessive whitespace
+    content = content.replace(/\n{3,}/g, "\n\n").trim();
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Document: ${title}\n\n${content}\n\n[Note: Content extracted from restricted document using mobilebasic endpoint]`,
         },
       ],
     };

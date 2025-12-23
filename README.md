@@ -8,11 +8,12 @@ Connect AI assistants (Air.dev, Claude Desktop, etc.) to your Google Drive.
 
 ```bash
 npm install
+```
+```bash
 npm run build
 ```
 
 ### Step 2: Get Google OAuth Credentials
-
 **Important:** Each person needs their own credentials. Don't share OAuth files!
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
@@ -81,7 +82,7 @@ Restart your AI client and ask:
 Your AI can now:
 - ✅ List and browse files/folders
 - ✅ Search for specific files
-- ✅ Read Google Docs
+- ✅ Read Google Docs (including restricted/protected documents)
 - ✅ Read Google Sheets
 - ✅ Create new documents and folders
 - ✅ Upload files
@@ -103,6 +104,9 @@ Your AI can now:
 
 **Port 3000 already in use**
 - Close apps using port 3000, or wait a minute and try again
+
+**Any other**
+- Contact @Arkadiy-DW in slack
 
 ## 👥 For Team Distribution
 
@@ -146,6 +150,29 @@ npm run build
 ```
 
 Your credentials remain intact - no need to run setup again.
+
+## 📚 Available Tools
+
+- **list_files** - List files and folders with pagination
+- **search_files** - Search for files using queries
+- **read_file** - Read any file content (exports Google formats)
+- **read_document** - Read Google Docs with formatting
+- **read_restricted_document** - Read protected/restricted documents that can't be accessed via API
+- **read_spreadsheet** - Read Google Sheets data
+- **get_file_metadata** - Get detailed file information
+- **create_document** - Create new Google Docs
+- **create_folder** - Create new folders
+- **upload_file** - Upload files to Drive
+
+### When to Use read_restricted_document
+
+Use `read_restricted_document` instead of `read_document` when:
+- The regular API returns permission/access denied errors
+- Document content appears incomplete or truncated
+- Document is shared with view-only restricted access
+- You get "forbidden to download" errors
+
+This tool uses Google's mobilebasic endpoint to extract content from restricted documents.
 
 ---
 
