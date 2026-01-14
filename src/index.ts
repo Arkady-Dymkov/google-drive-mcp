@@ -318,6 +318,26 @@ class GoogleDriveMCPServer {
             required: ["name", "content"],
           },
         },
+        {
+          name: "move_file",
+          description:
+            "Move a file or folder to a different location in Google Drive. Can move to a specific folder or to the root.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              fileId: {
+                type: "string",
+                description: "The ID of the file or folder to move",
+              },
+              destinationFolderId: {
+                type: "string",
+                description:
+                  "The ID of the destination folder. Use 'root' to move to the root of My Drive.",
+              },
+            },
+            required: ["fileId", "destinationFolderId"],
+          },
+        },
       ];
 
       return { tools };
@@ -353,6 +373,8 @@ class GoogleDriveMCPServer {
             return await this.handleCreateFolder(args as any);
           case "upload_file":
             return await this.handleUploadFile(args as any);
+          case "move_file":
+            return await this.handleMoveFile(args as any);
           default:
             return {
               content: [
@@ -803,6 +825,41 @@ class GoogleDriveMCPServer {
         {
           type: "text",
           text: `File uploaded successfully!\nName: ${file.name}\nID: ${file.id}\nURL: ${file.webViewLink}`,
+        },
+      ],
+    };
+  }
+
+  private async handleMoveFile(args: {
+    fileId: string;
+    destinationFolderId: string;
+  }) {
+    // First, get the current file info including its parents
+    const fileInfo = await this.drive.files.get({
+      fileId: args.fileId,
+      fields: "id, name, parents, mimeType",
+    });
+
+    const file = fileInfo.data;
+    const currentParents = file.parents ? file.parents.join(",") : "";
+
+    // Move the file by removing from current parents and adding to new parent
+    const response = await this.drive.files.update({
+      fileId: args.fileId,
+      addParents: args.destinationFolderId,
+      removeParents: currentParents,
+      fields: "id, name, parents, webViewLink",
+    });
+
+    const movedFile = response.data;
+    const isFolder = file.mimeType === MIME_TYPES.FOLDER;
+    const itemType = isFolder ? "Folder" : "File";
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `${itemType} moved successfully!\nName: ${movedFile.name}\nID: ${movedFile.id}\nNew location: ${args.destinationFolderId === "root" ? "My Drive (root)" : `Folder ID: ${args.destinationFolderId}`}\nURL: ${movedFile.webViewLink}`,
         },
       ],
     };
