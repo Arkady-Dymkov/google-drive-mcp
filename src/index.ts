@@ -14,6 +14,7 @@ import * as path from "path";
 import { homedir } from "os";
 import fetch from "node-fetch";
 import * as cheerio from "cheerio";
+import TurndownService from "turndown";
 
 // Google Drive MIME types
 const MIME_TYPES = {
@@ -338,6 +339,172 @@ class GoogleDriveMCPServer {
             required: ["fileId", "destinationFolderId"],
           },
         },
+        {
+          name: "append_text_to_document",
+          description:
+            "Append text to the end of an existing Google Doc.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              documentId: {
+                type: "string",
+                description: "The ID of the Google Doc to append to",
+              },
+              text: {
+                type: "string",
+                description: "The text to append to the document",
+              },
+            },
+            required: ["documentId", "text"],
+          },
+        },
+        {
+          name: "replace_text_in_document",
+          description:
+            "Find and replace text throughout a Google Doc.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              documentId: {
+                type: "string",
+                description: "The ID of the Google Doc",
+              },
+              findText: {
+                type: "string",
+                description: "The text to find",
+              },
+              replaceText: {
+                type: "string",
+                description: "The text to replace it with",
+              },
+              matchCase: {
+                type: "boolean",
+                description: "Whether to match case (default: false)",
+                default: false,
+              },
+            },
+            required: ["documentId", "findText", "replaceText"],
+          },
+        },
+        {
+          name: "format_text_in_document",
+          description:
+            "Apply formatting (bold, italic, etc.) to all occurrences of specified text in a Google Doc.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              documentId: {
+                type: "string",
+                description: "The ID of the Google Doc",
+              },
+              findText: {
+                type: "string",
+                description: "The text to format",
+              },
+              bold: {
+                type: "boolean",
+                description: "Apply bold formatting",
+              },
+              italic: {
+                type: "boolean",
+                description: "Apply italic formatting",
+              },
+              underline: {
+                type: "boolean",
+                description: "Apply underline formatting",
+              },
+              fontSize: {
+                type: "number",
+                description: "Font size in points",
+              },
+              foregroundColor: {
+                type: "string",
+                description: "Text color as hex (e.g., '#FF0000' for red)",
+              },
+            },
+            required: ["documentId", "findText"],
+          },
+        },
+        {
+          name: "insert_table_in_document",
+          description:
+            "Insert a table at the end of a Google Doc.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              documentId: {
+                type: "string",
+                description: "The ID of the Google Doc",
+              },
+              rows: {
+                type: "number",
+                description: "Number of rows in the table",
+              },
+              columns: {
+                type: "number",
+                description: "Number of columns in the table",
+              },
+              headerRow: {
+                type: "array",
+                items: { type: "string" },
+                description: "Optional array of header cell values",
+              },
+            },
+            required: ["documentId", "rows", "columns"],
+          },
+        },
+        {
+          name: "update_paragraph_style_in_document",
+          description:
+            "Update paragraph formatting (alignment, spacing, lists) for paragraphs containing specified text.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              documentId: {
+                type: "string",
+                description: "The ID of the Google Doc",
+              },
+              findText: {
+                type: "string",
+                description: "Text to find - the paragraph containing this text will be styled",
+              },
+              alignment: {
+                type: "string",
+                enum: ["START", "CENTER", "END", "JUSTIFIED"],
+                description: "Paragraph alignment",
+              },
+              lineSpacing: {
+                type: "number",
+                description: "Line spacing multiplier (e.g., 1.5 for 1.5x spacing)",
+              },
+              bulletPreset: {
+                type: "string",
+                enum: ["BULLET_DISC_CIRCLE_SQUARE", "BULLET_ARROW_DIAMOND_DISC", "NUMBERED_DECIMAL_NESTED"],
+                description: "Convert paragraph to a bulleted or numbered list",
+              },
+            },
+            required: ["documentId", "findText"],
+          },
+        },
+        {
+          name: "batch_update_document",
+          description:
+            "Execute multiple raw batchUpdate operations atomically on a Google Doc. For advanced users who need full API access.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              documentId: {
+                type: "string",
+                description: "The ID of the Google Doc",
+              },
+              requests: {
+                type: "array",
+                description: "Array of Google Docs API request objects (insertText, deleteContentRange, replaceAllText, updateTextStyle, etc.)",
+              },
+            },
+            required: ["documentId", "requests"],
+          },
+        },
       ];
 
       return { tools };
@@ -375,6 +542,18 @@ class GoogleDriveMCPServer {
             return await this.handleUploadFile(args as any);
           case "move_file":
             return await this.handleMoveFile(args as any);
+          case "append_text_to_document":
+            return await this.handleAppendTextToDocument(args as any);
+          case "replace_text_in_document":
+            return await this.handleReplaceTextInDocument(args as any);
+          case "format_text_in_document":
+            return await this.handleFormatTextInDocument(args as any);
+          case "insert_table_in_document":
+            return await this.handleInsertTableInDocument(args as any);
+          case "update_paragraph_style_in_document":
+            return await this.handleUpdateParagraphStyleInDocument(args as any);
+          case "batch_update_document":
+            return await this.handleBatchUpdateDocument(args as any);
           default:
             return {
               content: [
@@ -570,38 +749,87 @@ class GoogleDriveMCPServer {
     // Remove " - Google Docs" suffix if present
     title = title.replace(/ - Google Docs$/i, "").trim();
 
-    // Extract main content - mobilebasic has content in specific divs
-    let content = "";
+    // Extract main content HTML - preserve formatting
+    let contentHtml = "";
 
     // Try to find main content container
     const mainContent = $(".doc-content, .document-content, #contents, main");
     if (mainContent.length > 0) {
-      content = mainContent.text().trim();
-    } else {
-      // Fallback: extract all paragraphs
-      const paragraphs: string[] = [];
-      $("p").each((i, elem) => {
-        const text = $(elem).text().trim();
-        if (text && text.length > 0) {
-          paragraphs.push(text);
+      contentHtml = mainContent.html() || "";
+    }
+
+    // If no structured content found, try to extract HTML from paragraphs and headers
+    if (!contentHtml || contentHtml.length < 100) {
+      const contentElements: string[] = [];
+      $("h1, h2, h3, h4, h5, h6, p, ul, ol, table").each((i, elem) => {
+        const elementHtml = $(elem).prop("outerHTML");
+        if (elementHtml && $(elem).text().trim().length > 0) {
+          contentElements.push(elementHtml);
         }
       });
-      content = paragraphs.join("\n\n");
+      contentHtml = contentElements.join("\n");
     }
 
-    // If still no content, try body text
-    if (!content || content.length < 100) {
-      content = $("body").text().trim();
+    // Convert HTML to Markdown using Turndown
+    const turndownService = new TurndownService({
+      headingStyle: "atx",
+      bulletListMarker: "-",
+      codeBlockStyle: "fenced",
+      fence: "```",
+      emDelimiter: "*",
+      strongDelimiter: "**",
+      linkStyle: "inlined",
+    });
+
+    // Configure Turndown to handle Google Docs specific elements
+    turndownService.addRule("removeEmptyElements", {
+      filter: (node: any) => {
+        return (
+          node.nodeName === "SPAN" &&
+          (!node.textContent || node.textContent.trim() === "")
+        );
+      },
+      replacement: () => "",
+    });
+
+    let markdown = "";
+    if (contentHtml) {
+      try {
+        markdown = turndownService.turndown(contentHtml);
+      } catch (error) {
+        // Fallback to plain text if HTML conversion fails
+        markdown = $("body").text().trim();
+      }
     }
 
-    // Clean up excessive whitespace
-    content = content.replace(/\n{3,}/g, "\n\n").trim();
+    // If still no content, fallback to plain text extraction
+    if (!markdown || markdown.trim().length < 50) {
+      const paragraphs: string[] = [];
+      $("p, h1, h2, h3, h4, h5, h6").each((i, elem) => {
+        const text = $(elem).text().trim();
+        if (text && text.length > 0) {
+          // Add markdown formatting for headers
+          const tagName = elem.tagName?.toLowerCase();
+          if (tagName?.startsWith("h")) {
+            const level = parseInt(tagName.slice(1));
+            const hashes = "#".repeat(level);
+            paragraphs.push(`${hashes} ${text}`);
+          } else {
+            paragraphs.push(text);
+          }
+        }
+      });
+      markdown = paragraphs.join("\n\n");
+    }
+
+    // Clean up excessive whitespace in markdown
+    markdown = markdown.replace(/\n{4,}/g, "\n\n\n").trim();
 
     return {
       content: [
         {
           type: "text",
-          text: `Document: ${title}\n\n${content}\n\n[Note: Content extracted from restricted document using mobilebasic endpoint]`,
+          text: `# ${title}\n\n${markdown}\n\n---\n*Content extracted from restricted document using mobilebasic endpoint and converted to Markdown*`,
         },
       ],
     };
@@ -860,6 +1088,417 @@ class GoogleDriveMCPServer {
         {
           type: "text",
           text: `${itemType} moved successfully!\nName: ${movedFile.name}\nID: ${movedFile.id}\nNew location: ${args.destinationFolderId === "root" ? "My Drive (root)" : `Folder ID: ${args.destinationFolderId}`}\nURL: ${movedFile.webViewLink}`,
+        },
+      ],
+    };
+  }
+
+  private async handleAppendTextToDocument(args: {
+    documentId: string;
+    text: string;
+  }) {
+    // Get document to find end position
+    const doc = await this.docs.documents.get({
+      documentId: args.documentId,
+    });
+
+    const content = doc.data.body?.content || [];
+    const lastElement = content[content.length - 1];
+    const endIndex = lastElement?.endIndex || 1;
+
+    // Insert text at end (endIndex - 1 to insert before the final newline)
+    await this.docs.documents.batchUpdate({
+      documentId: args.documentId,
+      requestBody: {
+        requests: [
+          {
+            insertText: {
+              location: {
+                index: endIndex - 1,
+              },
+              text: args.text,
+            },
+          },
+        ],
+      },
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Text appended successfully!\nDocument: https://docs.google.com/document/d/${args.documentId}/edit`,
+        },
+      ],
+    };
+  }
+
+  private async handleReplaceTextInDocument(args: {
+    documentId: string;
+    findText: string;
+    replaceText: string;
+    matchCase?: boolean;
+  }) {
+    const response = await this.docs.documents.batchUpdate({
+      documentId: args.documentId,
+      requestBody: {
+        requests: [
+          {
+            replaceAllText: {
+              containsText: {
+                text: args.findText,
+                matchCase: args.matchCase || false,
+              },
+              replaceText: args.replaceText,
+            },
+          },
+        ],
+      },
+    });
+
+    const replaceResult = response.data.replies?.[0]?.replaceAllText;
+    const occurrencesChanged = replaceResult?.occurrencesChanged || 0;
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Replaced ${occurrencesChanged} occurrence(s) of "${args.findText}" with "${args.replaceText}"\nDocument: https://docs.google.com/document/d/${args.documentId}/edit`,
+        },
+      ],
+    };
+  }
+
+  private async handleFormatTextInDocument(args: {
+    documentId: string;
+    findText: string;
+    bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+    fontSize?: number;
+    foregroundColor?: string;
+  }) {
+    // First, get the document to find all occurrences of the text
+    const doc = await this.docs.documents.get({
+      documentId: args.documentId,
+    });
+
+    const content = doc.data.body?.content || [];
+    const ranges: { startIndex: number; endIndex: number }[] = [];
+
+    // Find all occurrences of the text
+    for (const element of content) {
+      if (element.paragraph) {
+        for (const textElement of element.paragraph.elements || []) {
+          if (textElement.textRun?.content) {
+            const text = textElement.textRun.content;
+            const startOffset = textElement.startIndex || 0;
+            let searchIndex = 0;
+
+            while (true) {
+              const foundIndex = text.indexOf(args.findText, searchIndex);
+              if (foundIndex === -1) break;
+
+              ranges.push({
+                startIndex: startOffset + foundIndex,
+                endIndex: startOffset + foundIndex + args.findText.length,
+              });
+              searchIndex = foundIndex + 1;
+            }
+          }
+        }
+      }
+    }
+
+    if (ranges.length === 0) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Text "${args.findText}" not found in document.`,
+          },
+        ],
+      };
+    }
+
+    // Build text style object
+    const textStyle: any = {};
+    const fields: string[] = [];
+
+    if (args.bold !== undefined) {
+      textStyle.bold = args.bold;
+      fields.push("bold");
+    }
+    if (args.italic !== undefined) {
+      textStyle.italic = args.italic;
+      fields.push("italic");
+    }
+    if (args.underline !== undefined) {
+      textStyle.underline = args.underline;
+      fields.push("underline");
+    }
+    if (args.fontSize !== undefined) {
+      textStyle.fontSize = {
+        magnitude: args.fontSize,
+        unit: "PT",
+      };
+      fields.push("fontSize");
+    }
+    if (args.foregroundColor) {
+      // Parse hex color
+      const hex = args.foregroundColor.replace("#", "");
+      const r = parseInt(hex.substring(0, 2), 16) / 255;
+      const g = parseInt(hex.substring(2, 4), 16) / 255;
+      const b = parseInt(hex.substring(4, 6), 16) / 255;
+
+      textStyle.foregroundColor = {
+        color: {
+          rgbColor: { red: r, green: g, blue: b },
+        },
+      };
+      fields.push("foregroundColor");
+    }
+
+    // Apply formatting to all ranges (in reverse order to maintain indices)
+    const requests = ranges
+      .sort((a, b) => b.startIndex - a.startIndex)
+      .map((range) => ({
+        updateTextStyle: {
+          range: {
+            startIndex: range.startIndex,
+            endIndex: range.endIndex,
+          },
+          textStyle,
+          fields: fields.join(","),
+        },
+      }));
+
+    await this.docs.documents.batchUpdate({
+      documentId: args.documentId,
+      requestBody: { requests },
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Formatted ${ranges.length} occurrence(s) of "${args.findText}"\nDocument: https://docs.google.com/document/d/${args.documentId}/edit`,
+        },
+      ],
+    };
+  }
+
+  private async handleInsertTableInDocument(args: {
+    documentId: string;
+    rows: number;
+    columns: number;
+    headerRow?: string[];
+  }) {
+    // Get document to find end position
+    const doc = await this.docs.documents.get({
+      documentId: args.documentId,
+    });
+
+    const content = doc.data.body?.content || [];
+    const lastElement = content[content.length - 1];
+    const endIndex = lastElement?.endIndex || 1;
+
+    // Insert table at end
+    await this.docs.documents.batchUpdate({
+      documentId: args.documentId,
+      requestBody: {
+        requests: [
+          {
+            insertTable: {
+              rows: args.rows,
+              columns: args.columns,
+              location: {
+                index: endIndex - 1,
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    // If headerRow provided, populate the first row
+    if (args.headerRow && args.headerRow.length > 0) {
+      // Get updated document to find table cells
+      const updatedDoc = await this.docs.documents.get({
+        documentId: args.documentId,
+      });
+
+      const updatedContent = updatedDoc.data.body?.content || [];
+      const table = updatedContent.find((el: any) => el.table);
+
+      if (table?.table?.tableRows?.[0]?.tableCells) {
+        const cells = table.table.tableRows[0].tableCells;
+        const requests: any[] = [];
+
+        // Insert header text in reverse order to maintain indices
+        for (let i = Math.min(args.headerRow.length, cells.length) - 1; i >= 0; i--) {
+          const cell = cells[i];
+          const cellContent = cell.content?.[0];
+          const insertIndex = cellContent?.startIndex || cell.startIndex + 1;
+
+          requests.push({
+            insertText: {
+              location: { index: insertIndex },
+              text: args.headerRow[i],
+            },
+          });
+        }
+
+        if (requests.length > 0) {
+          await this.docs.documents.batchUpdate({
+            documentId: args.documentId,
+            requestBody: { requests },
+          });
+        }
+      }
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Table inserted successfully (${args.rows} rows x ${args.columns} columns)\nDocument: https://docs.google.com/document/d/${args.documentId}/edit`,
+        },
+      ],
+    };
+  }
+
+  private async handleUpdateParagraphStyleInDocument(args: {
+    documentId: string;
+    findText: string;
+    alignment?: string;
+    lineSpacing?: number;
+    bulletPreset?: string;
+  }) {
+    // Get document to find the paragraph containing the text
+    const doc = await this.docs.documents.get({
+      documentId: args.documentId,
+    });
+
+    const content = doc.data.body?.content || [];
+    let paragraphRange: { startIndex: number; endIndex: number } | null = null;
+
+    // Find paragraph containing the text
+    for (const element of content) {
+      if (element.paragraph) {
+        let paragraphText = "";
+        for (const textElement of element.paragraph.elements || []) {
+          if (textElement.textRun?.content) {
+            paragraphText += textElement.textRun.content;
+          }
+        }
+
+        if (paragraphText.includes(args.findText)) {
+          paragraphRange = {
+            startIndex: element.startIndex || 0,
+            endIndex: element.endIndex || 0,
+          };
+          break;
+        }
+      }
+    }
+
+    if (!paragraphRange) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Text "${args.findText}" not found in any paragraph.`,
+          },
+        ],
+      };
+    }
+
+    const requests: any[] = [];
+
+    // Handle bullet/list conversion
+    if (args.bulletPreset) {
+      requests.push({
+        createParagraphBullets: {
+          range: {
+            startIndex: paragraphRange.startIndex,
+            endIndex: paragraphRange.endIndex,
+          },
+          bulletPreset: args.bulletPreset,
+        },
+      });
+    }
+
+    // Handle paragraph style updates
+    if (args.alignment || args.lineSpacing) {
+      const paragraphStyle: any = {};
+      const fields: string[] = [];
+
+      if (args.alignment) {
+        paragraphStyle.alignment = args.alignment;
+        fields.push("alignment");
+      }
+      if (args.lineSpacing) {
+        paragraphStyle.lineSpacing = args.lineSpacing * 100; // Convert to percentage
+        fields.push("lineSpacing");
+      }
+
+      requests.push({
+        updateParagraphStyle: {
+          range: {
+            startIndex: paragraphRange.startIndex,
+            endIndex: paragraphRange.endIndex,
+          },
+          paragraphStyle,
+          fields: fields.join(","),
+        },
+      });
+    }
+
+    if (requests.length === 0) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "No style changes specified. Please provide alignment, lineSpacing, or bulletPreset.",
+          },
+        ],
+      };
+    }
+
+    await this.docs.documents.batchUpdate({
+      documentId: args.documentId,
+      requestBody: { requests },
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Paragraph style updated successfully!\nDocument: https://docs.google.com/document/d/${args.documentId}/edit`,
+        },
+      ],
+    };
+  }
+
+  private async handleBatchUpdateDocument(args: {
+    documentId: string;
+    requests: any[];
+  }) {
+    const response = await this.docs.documents.batchUpdate({
+      documentId: args.documentId,
+      requestBody: {
+        requests: args.requests,
+      },
+    });
+
+    const repliesCount = response.data.replies?.length || 0;
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Batch update completed successfully!\nOperations executed: ${args.requests.length}\nReplies received: ${repliesCount}\nDocument: https://docs.google.com/document/d/${args.documentId}/edit`,
         },
       ],
     };

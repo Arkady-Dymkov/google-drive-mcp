@@ -26,10 +26,12 @@
     "google-auth-library": "^9.0.0",
     "googleapis": "^144.0.0",
     "node-fetch": "^3.3.2",
-    "open": "^11.0.0"
+    "open": "^11.0.0",
+    "turndown": "^7.2.2"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/turndown": "^5.0.6",
     "typescript": "^5.6.0"
   },
   "engines": {

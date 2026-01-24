@@ -82,7 +82,7 @@ Restart your AI client and ask:
 Your AI can now:
 - ✅ List and browse files/folders
 - ✅ Search for specific files
-- ✅ Read Google Docs (including restricted/protected documents)
+- ✅ Read Google Docs (including restricted/protected documents with Markdown formatting)
 - ✅ Read Google Sheets
 - ✅ Create new documents and folders
 - ✅ Upload files
@@ -157,7 +157,7 @@ Your credentials remain intact - no need to run setup again.
 - **search_files** - Search for files using queries
 - **read_file** - Read any file content (exports Google formats)
 - **read_document** - Read Google Docs with formatting
-- **read_restricted_document** - Read protected/restricted documents that can't be accessed via API
+- **read_restricted_document** - Read protected/restricted documents with Markdown formatting
 - **read_spreadsheet** - Read Google Sheets data
 - **get_file_metadata** - Get detailed file information
 - **create_document** - Create new Google Docs
@@ -172,7 +172,7 @@ Use `read_restricted_document` instead of `read_document` when:
 - Document is shared with view-only restricted access
 - You get "forbidden to download" errors
 
-This tool uses Google's mobilebasic endpoint to extract content from restricted documents.
+This tool uses Google's mobilebasic endpoint to extract HTML content from restricted documents and converts it to clean Markdown format, preserving headers, lists, links, and other formatting.
 
 ---
 
