@@ -5,7 +5,7 @@ import * as readline from "readline";
 import * as http from "http";
 import { URL } from "url";
 import open from "open";
-import { getConfigPath, getConfigDir, saveConfig } from "./auth.js";
+import { getConfigDir } from "./auth.js";
 import { escapeHtml } from "./utils.js";
 import type { AppConfig } from "./types.js";
 
@@ -20,87 +20,72 @@ const OAUTH_SCOPES = [
 
 const OAUTH_PORT = 3000;
 const OAUTH_TIMEOUT_MS = 5 * 60 * 1000;
+const PKG_NAME = "adw-google-mcp";
 
-function question(
-  rl: readline.Interface,
-  query: string,
-): Promise<string> {
+// ── Helpers ──────────────────────────────────────────────────
+
+function ask(rl: readline.Interface, query: string): Promise<string> {
   return new Promise((resolve) => rl.question(query, resolve));
 }
 
-function printBanner(profileName: string, configPath: string): void {
-  console.clear();
-  console.log("================================================");
-  console.log("  Google Workspace MCP Server - Setup Wizard");
-  console.log("================================================\n");
-  if (profileName !== "default") {
-    console.log(`Profile: ${profileName}`);
-    console.log(`Config will be saved to: ${configPath}\n`);
+function line(ch = "─", len = 50): string {
+  return ch.repeat(len);
+}
+
+function configDir(): string {
+  const dir = getConfigDir();
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function listAccounts(): string[] {
+  const dir = configDir();
+  try {
+    return fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith(".json") && f !== "credentials.json")
+      .map((f) => f.replace(/\.json$/, ""));
+  } catch {
+    return [];
   }
 }
 
-function waitForOAuthCallback(port: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const server = http.createServer((req, res) => {
-      const requestUrl = new URL(req.url!, `http://localhost:${port}`);
-      const code = requestUrl.searchParams.get("code");
-      const error = requestUrl.searchParams.get("error");
+function accountConfigPath(name: string): string {
+  return path.join(configDir(), `${name}.json`);
+}
 
-      if (error) {
-        res.writeHead(400, { "Content-Type": "text/html" });
-        res.end(`
-          <html><head><title>Authorization Failed</title>
-          <style>body{font-family:system-ui;padding:60px;text-align:center;background:#f5f5f5}
-          .c{background:#fff;padding:40px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.1);max-width:500px;margin:0 auto}
-          h1{color:#d32f2f}p{color:#666}</style></head>
-          <body><div class="c"><h1>Authorization Failed</h1>
-          <p>Error: ${escapeHtml(error)}</p>
-          <p>Please close this window and try again.</p></div></body></html>
-        `);
-        server.close();
-        reject(new Error(`Authorization error: ${error}`));
-        return;
-      }
+function loadAccount(name: string): AppConfig | null {
+  try {
+    const p = accountConfigPath(name);
+    if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, "utf-8"));
+  } catch {}
+  return null;
+}
 
-      if (code) {
-        res.writeHead(200, { "Content-Type": "text/html" });
-        res.end(`
-          <html><head><title>Authorization Successful</title>
-          <style>body{font-family:system-ui;padding:60px;text-align:center;background:#f5f5f5}
-          .c{background:#fff;padding:40px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.1);max-width:500px;margin:0 auto}
-          h1{color:#4caf50}p{color:#666}</style></head>
-          <body><div class="c"><h1>Authorization Successful!</h1>
-          <p>You can close this window and return to the terminal.</p></div></body></html>
-        `);
-        server.close();
-        resolve(code);
-      }
-    });
+function saveAccount(name: string, config: AppConfig): void {
+  fs.writeFileSync(accountConfigPath(name), JSON.stringify(config, null, 2));
+}
 
-    server.listen(port, () => {
-      console.log(`\nLocal server started on port ${port}`);
-      console.log("  Waiting for authorization...\n");
-    });
+function deleteAccount(name: string): void {
+  const p = accountConfigPath(name);
+  if (fs.existsSync(p)) fs.unlinkSync(p);
+}
 
-    server.on("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "EADDRINUSE") {
-        reject(
-          new Error(
-            `Port ${port} is already in use. Please close other applications using this port.`,
-          ),
-        );
-      } else {
-        reject(err);
-      }
-    });
+// ── Built-in defaults (injected at publish time by CI) ────
 
-    setTimeout(() => {
-      server.close();
-      reject(
-        new Error("Authorization timeout (5 minutes). Please try again."),
-      );
-    }, OAUTH_TIMEOUT_MS);
-  });
+function loadBuiltInDefaults(): {
+  clientId: string;
+  clientSecret: string;
+} | null {
+  try {
+    const dir = new URL(".", import.meta.url).pathname;
+    const defaultsPath = path.join(dir, "defaults.json");
+    if (fs.existsSync(defaultsPath)) {
+      const data = JSON.parse(fs.readFileSync(defaultsPath, "utf-8"));
+      if (data.clientId && data.clientSecret) return data;
+    }
+  } catch {}
+  return null;
 }
 
 function extractCredentialsFromJson(
@@ -117,266 +102,362 @@ function extractCredentialsFromJson(
   }
 }
 
-// ── Built-in defaults (injected at publish time by CI) ────
+// ── OAuth flow ───────────────────────────────────────────────
 
-function loadBuiltInDefaults(): {
-  clientId: string;
-  clientSecret: string;
-} | null {
-  try {
-    const dir = new URL(".", import.meta.url).pathname;
-    const defaultsPath = path.join(dir, "defaults.json");
-    if (fs.existsSync(defaultsPath)) {
-      const data = JSON.parse(fs.readFileSync(defaultsPath, "utf-8"));
-      if (data.clientId && data.clientSecret) return data;
-    }
-  } catch {
-    // defaults.json doesn't exist or is invalid — that's fine
-  }
-  return null;
+function waitForOAuthCallback(port: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer((req, res) => {
+      const requestUrl = new URL(req.url!, `http://localhost:${port}`);
+      const code = requestUrl.searchParams.get("code");
+      const error = requestUrl.searchParams.get("error");
+
+      if (error) {
+        res.writeHead(400, { "Content-Type": "text/html" });
+        res.end(`<html><head><title>Failed</title>
+          <style>body{font-family:system-ui;padding:60px;text-align:center;background:#f5f5f5}
+          .c{background:#fff;padding:40px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.1);max-width:500px;margin:0 auto}
+          h1{color:#d32f2f}p{color:#666}</style></head>
+          <body><div class="c"><h1>Authorization Failed</h1>
+          <p>${escapeHtml(error)}</p></div></body></html>`);
+        server.close();
+        reject(new Error(`Authorization error: ${error}`));
+        return;
+      }
+
+      if (code) {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end(`<html><head><title>Success</title>
+          <style>body{font-family:system-ui;padding:60px;text-align:center;background:#f5f5f5}
+          .c{background:#fff;padding:40px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.1);max-width:500px;margin:0 auto}
+          h1{color:#4caf50}p{color:#666}</style></head>
+          <body><div class="c"><h1>Authorization Successful!</h1>
+          <p>You can close this window.</p></div></body></html>`);
+        server.close();
+        resolve(code);
+      }
+    });
+
+    server.listen(port, () => {
+      console.log(`  Waiting for authorization on port ${port}...`);
+    });
+
+    server.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE") {
+        reject(new Error(`Port ${port} is in use. Close other apps and retry.`));
+      } else {
+        reject(err);
+      }
+    });
+
+    setTimeout(() => {
+      server.close();
+      reject(new Error("Authorization timeout (5 min). Try again."));
+    }, OAUTH_TIMEOUT_MS);
+  });
 }
 
-// ── Credential resolution ─────────────────────────────────
-// Priority: 1) env vars  2) built-in defaults  3) existing config  4) JSON file  5) manual input
+async function performOAuth(
+  clientId: string,
+  clientSecret: string,
+): Promise<string> {
+  const redirectUri = `http://localhost:${OAUTH_PORT}`;
+  const oauth2Client = new google.auth.OAuth2(
+    clientId,
+    clientSecret,
+    redirectUri,
+  );
+
+  const authUrl = oauth2Client.generateAuthUrl({
+    access_type: "offline",
+    scope: OAUTH_SCOPES,
+    prompt: "consent",
+  });
+
+  console.log("\n  Opening browser for authorization...");
+  console.log(`  If it doesn't open, visit: ${authUrl}\n`);
+
+  try {
+    await open(authUrl);
+  } catch {}
+
+  const code = await waitForOAuthCallback(OAUTH_PORT);
+  console.log("  Authorization received! Exchanging tokens...\n");
+
+  const { tokens } = await oauth2Client.getToken(code);
+
+  if (!tokens.refresh_token) {
+    throw new Error(
+      "No refresh token received. Go to https://myaccount.google.com/permissions, remove this app, and try again.",
+    );
+  }
+
+  return tokens.refresh_token;
+}
+
+// ── MCP config output ────────────────────────────────────────
+
+function getMcpConfig(
+  accountName: string,
+  clientId: string,
+  clientSecret: string,
+  hasBuiltIn: boolean,
+): Record<string, unknown> {
+  const env: Record<string, string> = {
+    GOOGLE_DRIVE_PROFILE: accountName,
+    GOOGLE_DRIVE_SERVER_NAME: `google-workspace-${accountName}`,
+  };
+  if (!hasBuiltIn) {
+    env.GOOGLE_CLIENT_ID = clientId;
+    env.GOOGLE_CLIENT_SECRET = clientSecret;
+  }
+  return {
+    command: "npx",
+    args: ["-y", PKG_NAME],
+    env,
+  };
+}
+
+function getClaudeCodeCommand(
+  accountName: string,
+  clientId: string,
+  clientSecret: string,
+  hasBuiltIn: boolean,
+): string {
+  const envParts = [
+    `GOOGLE_DRIVE_PROFILE=${accountName}`,
+    `GOOGLE_DRIVE_SERVER_NAME=google-workspace-${accountName}`,
+  ];
+  if (!hasBuiltIn) {
+    envParts.push(`GOOGLE_CLIENT_ID=${clientId}`);
+    envParts.push(`GOOGLE_CLIENT_SECRET=${clientSecret}`);
+  }
+  return `claude mcp add google-workspace-${accountName} -e ${envParts.join(" -e ")} -- npx -y ${PKG_NAME}`;
+}
+
+function printAccountConfig(
+  accountName: string,
+  clientId: string,
+  clientSecret: string,
+  hasBuiltIn: boolean,
+): void {
+  const mcpConfig = getMcpConfig(accountName, clientId, clientSecret, hasBuiltIn);
+
+  console.log(`\n  MCP client config (Claude Desktop / Air.dev / Cursor):\n`);
+  console.log(
+    `  ${JSON.stringify({ mcpServers: { [`google-workspace-${accountName}`]: mcpConfig } }, null, 2).split("\n").join("\n  ")}`,
+  );
+
+  console.log(`\n  Claude Code command:\n`);
+  console.log(`  ${getClaudeCodeCommand(accountName, clientId, clientSecret, hasBuiltIn)}`);
+  console.log();
+}
+
+// ── Credential resolution ────────────────────────────────────
 
 async function resolveCredentials(
   rl: readline.Interface,
-  configPath: string,
-): Promise<{ clientId: string; clientSecret: string }> {
-  // 1) Environment variables
-  const envClientId = process.env.GOOGLE_CLIENT_ID;
-  const envClientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  if (envClientId && envClientSecret) {
-    console.log("Using credentials from GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET env vars.");
-    console.log(`  Client ID: ${envClientId.substring(0, 20)}...\n`);
-    return { clientId: envClientId, clientSecret: envClientSecret };
+): Promise<{ clientId: string; clientSecret: string; isBuiltIn: boolean }> {
+  // Check env vars first
+  const envId = process.env.GOOGLE_CLIENT_ID;
+  const envSecret = process.env.GOOGLE_CLIENT_SECRET;
+  if (envId && envSecret) {
+    return { clientId: envId, clientSecret: envSecret, isBuiltIn: false };
   }
 
-  // 2) Built-in defaults (baked into the npm package by CI)
+  // Check built-in defaults
   const builtIn = loadBuiltInDefaults();
+
   if (builtIn) {
-    console.log("Using built-in credentials.");
-    console.log(`  Client ID: ${builtIn.clientId.substring(0, 20)}...\n`);
-    return builtIn;
-  }
+    console.log("\n  How do you want to connect?\n");
+    console.log("  1) Use built-in credentials (recommended)");
+    console.log("  2) Use my own Google Cloud project\n");
+    const choice = await ask(rl, "  Choose [1]: ");
 
-  // 2) Existing config (re-authorization with same credentials)
-  try {
-    if (fs.existsSync(configPath)) {
-      const existing = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-      if (existing.clientId && existing.clientSecret) {
-        const reuse = await question(
-          rl,
-          `Existing credentials found. Re-authorize with same credentials? (y/n): `,
-        );
-        if (reuse.toLowerCase() === "y") {
-          console.log(`  Client ID: ${existing.clientId.substring(0, 20)}...\n`);
-          return {
-            clientId: existing.clientId,
-            clientSecret: existing.clientSecret,
-          };
-        }
-      }
+    if (choice.trim() === "2") {
+      return { ...(await askForOwnCredentials(rl)), isBuiltIn: false };
     }
-  } catch {
-    // ignore parse errors
+    return { ...builtIn, isBuiltIn: true };
   }
 
-  // 3) JSON file or manual input
-  console.log("You need Google OAuth 2.0 credentials.");
-  console.log("Options:");
-  console.log("  a) Provide a downloaded OAuth JSON file");
-  console.log("  b) Enter Client ID and Secret manually");
-  console.log(
-    "  c) Ask your admin for GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET env vars\n",
-  );
-
-  const hasJson = await question(
-    rl,
-    "Do you have a Google OAuth JSON file? (y/n): ",
-  );
-
-  if (hasJson.toLowerCase() === "y") {
-    const jsonPath = await question(
-      rl,
-      "Enter the path to your JSON file (or drag & drop): ",
-    );
-    const cleanPath = jsonPath.trim().replace(/^['"]|['"]$/g, "");
-    const creds = extractCredentialsFromJson(cleanPath);
-
-    if (creds) {
-      console.log("\nSuccessfully extracted credentials from JSON file");
-      console.log(`  Client ID: ${creds.clientId.substring(0, 20)}...`);
-      return creds;
-    }
-    console.log(
-      "\nCould not parse JSON file. Please enter credentials manually.\n",
-    );
-  }
-
-  const clientId = await question(rl, "Client ID: ");
-  const clientSecret = await question(rl, "Client Secret: ");
-  return { clientId: clientId.trim(), clientSecret: clientSecret.trim() };
+  // No built-in — must provide own
+  return { ...(await askForOwnCredentials(rl)), isBuiltIn: false };
 }
 
-// ── Main setup flow ───────────────────────────────────────
+async function askForOwnCredentials(
+  rl: readline.Interface,
+): Promise<{ clientId: string; clientSecret: string }> {
+  console.log("\n  You need a Google Cloud project with OAuth credentials.");
+  console.log("  See README for setup instructions.\n");
+
+  const hasJson = await ask(rl, "  Have an OAuth JSON file? (y/n): ");
+  if (hasJson.toLowerCase() === "y") {
+    const jsonPath = await ask(rl, "  Path to JSON file: ");
+    const creds = extractCredentialsFromJson(
+      jsonPath.trim().replace(/^['"]|['"]$/g, ""),
+    );
+    if (creds) {
+      console.log(`  Loaded: ${creds.clientId.substring(0, 25)}...`);
+      return creds;
+    }
+    console.log("  Could not parse file. Enter manually:\n");
+  }
+
+  const clientId = (await ask(rl, "  Client ID: ")).trim();
+  const clientSecret = (await ask(rl, "  Client Secret: ")).trim();
+  return { clientId, clientSecret };
+}
+
+// ── Main menu ────────────────────────────────────────────────
 
 export async function runSetup(): Promise<void> {
-  const configPath = getConfigPath();
-  const configDir = getConfigDir();
-  const profileName = process.env.GOOGLE_DRIVE_PROFILE || "default";
-
-  // Check if credentials are pre-configured (env vars or built-in defaults)
-  const hasEnvCreds =
-    (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) ||
-    loadBuiltInDefaults() !== null;
-
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
   });
 
   try {
-    printBanner(profileName, configPath);
+    // Step 1: Resolve credentials
+    console.clear();
+    console.log(line("="));
+    console.log("  Google Workspace MCP — Setup");
+    console.log(line("="));
 
-    if (!hasEnvCreds) {
-      console.log("This wizard will help you connect to Google Workspace.\n");
+    const { clientId, clientSecret, isBuiltIn } =
+      await resolveCredentials(rl);
+
+    // Step 2: Account management loop
+    while (true) {
+      const accounts = listAccounts();
+
+      console.log(`\n${line()}`);
+      console.log("  Accounts");
+      console.log(line());
+
+      if (accounts.length === 0) {
+        console.log("\n  No accounts configured yet.\n");
+      } else {
+        console.log();
+        accounts.forEach((name, i) => {
+          console.log(`  ${i + 1}) ${name}`);
+        });
+        console.log();
+      }
+
+      console.log(`  a) Add new account`);
+      if (accounts.length > 0) {
+        console.log(`  v) View account config`);
+        console.log(`  d) Delete account`);
+      }
+      console.log(`  q) Quit\n`);
+
+      const choice = (await ask(rl, "  Choose: ")).trim().toLowerCase();
+
+      // ── Add account ──
+      if (choice === "a") {
+        console.log(`\n${line()}`);
+        console.log("  Add Account");
+        console.log(line());
+
+        const name = (
+          await ask(rl, "\n  Account name (e.g., work, personal): ")
+        )
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9_-]/g, "-");
+
+        if (!name) {
+          console.log("  Invalid name.");
+          continue;
+        }
+
+        if (accounts.includes(name)) {
+          const overwrite = await ask(
+            rl,
+            `  "${name}" already exists. Re-authorize? (y/n): `,
+          );
+          if (overwrite.toLowerCase() !== "y") continue;
+        }
+
+        try {
+          console.log(`\n  Authorizing "${name}"...`);
+          const refreshToken = await performOAuth(clientId, clientSecret);
+
+          saveAccount(name, {
+            clientId,
+            clientSecret,
+            redirectUri: `http://localhost:${OAUTH_PORT}`,
+            refreshToken,
+          });
+
+          console.log(`  Account "${name}" saved!\n`);
+          console.log(line());
+          console.log("  Configuration for your AI client:");
+          printAccountConfig(name, clientId, clientSecret, isBuiltIn);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.log(`\n  Error: ${msg}`);
+        }
+        continue;
+      }
+
+      // ── View account ──
+      if (choice === "v" && accounts.length > 0) {
+        const idx = await ask(rl, "  Account number: ");
+        const account = accounts[parseInt(idx) - 1];
+        if (!account) {
+          console.log("  Invalid selection.");
+          continue;
+        }
+        const cfg = loadAccount(account);
+        if (cfg) {
+          console.log(`\n${line()}`);
+          console.log(`  Account: ${account}`);
+          console.log(line());
+          printAccountConfig(
+            account,
+            cfg.clientId,
+            cfg.clientSecret,
+            isBuiltIn,
+          );
+        }
+        continue;
+      }
+
+      // ── Delete account ──
+      if (choice === "d" && accounts.length > 0) {
+        const idx = await ask(rl, "  Account number to delete: ");
+        const account = accounts[parseInt(idx) - 1];
+        if (!account) {
+          console.log("  Invalid selection.");
+          continue;
+        }
+        const confirm = await ask(
+          rl,
+          `  Delete "${account}"? This cannot be undone. (y/n): `,
+        );
+        if (confirm.toLowerCase() === "y") {
+          deleteAccount(account);
+          console.log(`  Account "${account}" deleted.`);
+        }
+        continue;
+      }
+
+      // ── Quit ──
+      if (choice === "q") {
+        const accounts2 = listAccounts();
+        if (accounts2.length === 0) {
+          console.log("\n  No accounts configured. Run --setup again to add one.\n");
+        } else {
+          console.log(
+            `\n  ${accounts2.length} account(s) configured. Restart your AI client to use them.\n`,
+          );
+        }
+        break;
+      }
     }
-
-    const { clientId, clientSecret } = await resolveCredentials(
-      rl,
-      configPath,
-    );
-    const redirectUri = `http://localhost:${OAUTH_PORT}`;
-
-    const oauth2Client = new google.auth.OAuth2(
-      clientId,
-      clientSecret,
-      redirectUri,
-    );
-
-    const authUrl = oauth2Client.generateAuthUrl({
-      access_type: "offline",
-      scope: OAUTH_SCOPES,
-      prompt: "consent",
-    });
-
-    console.log("\n================================================");
-    console.log("  Authorize Access");
-    console.log("================================================\n");
-    console.log("Opening your browser for authorization...");
-    console.log("If it doesn't open automatically, visit this URL:\n");
-    console.log(authUrl);
-    console.log("");
-
-    try {
-      await open(authUrl);
-    } catch {
-      console.log(
-        "Could not open browser automatically. Please copy the URL above.",
-      );
-    }
-
-    const code = await waitForOAuthCallback(OAUTH_PORT);
-
-    console.log("Authorization code received!");
-    console.log("\n  Exchanging code for tokens...\n");
-
-    const { tokens } = await oauth2Client.getToken(code);
-
-    if (!tokens.refresh_token) {
-      console.log("\nError: No refresh token received.");
-      console.log("  This can happen if you've already authorized this app.");
-      console.log("  To fix this:");
-      console.log("  1. Go to: https://myaccount.google.com/permissions");
-      console.log("  2. Remove this app");
-      console.log("  3. Run this setup again\n");
-      process.exit(1);
-    }
-
-    const config: AppConfig = {
-      clientId,
-      clientSecret,
-      redirectUri,
-      refreshToken: tokens.refresh_token,
-    };
-
-    if (!fs.existsSync(configDir)) {
-      fs.mkdirSync(configDir, { recursive: true });
-    }
-    saveConfig(configPath, config);
-
-    console.log("================================================");
-    console.log("  Setup Complete!");
-    console.log("================================================\n");
-    console.log(`Configuration saved to: ${configPath}\n`);
-    console.log("Next steps - Add to your MCP client configuration:\n");
-
-    // Build the MCP config example
-    const mcpEnv: Record<string, string> = {};
-    if (hasEnvCreds) {
-      mcpEnv.GOOGLE_CLIENT_ID = clientId;
-      mcpEnv.GOOGLE_CLIENT_SECRET = clientSecret;
-    }
-
-    if (profileName !== "default") {
-      mcpEnv.GOOGLE_DRIVE_PROFILE = profileName;
-      mcpEnv.GOOGLE_DRIVE_SERVER_NAME = `google-workspace-${profileName}`;
-      console.log(`For profile "${profileName}":\n`);
-      console.log(
-        JSON.stringify(
-          {
-            mcpServers: {
-              [`google-workspace-${profileName}`]: {
-                command: "npx",
-                args: ["-y", "adw-google-mcp"],
-                ...(Object.keys(mcpEnv).length > 0
-                  ? { env: mcpEnv }
-                  : {}),
-              },
-            },
-          },
-          null,
-          2,
-        ),
-      );
-      console.log(
-        "\nTip: Run setup with different GOOGLE_DRIVE_PROFILE values to add more accounts.\n",
-      );
-    } else {
-      console.log(
-        JSON.stringify(
-          {
-            mcpServers: {
-              "google-workspace": {
-                command: "npx",
-                args: ["-y", "adw-google-mcp"],
-                ...(Object.keys(mcpEnv).length > 0
-                  ? { env: mcpEnv }
-                  : {}),
-              },
-            },
-          },
-          null,
-          2,
-        ),
-      );
-      console.log(
-        "\nTip: For multiple Google accounts, run setup with a profile:",
-      );
-      console.log("  GOOGLE_DRIVE_PROFILE=work npx adw-google-mcp --setup");
-      console.log(
-        "  GOOGLE_DRIVE_PROFILE=personal npx adw-google-mcp --setup\n",
-      );
-    }
-
-    console.log(
-      "Then restart your AI client to start using Google Workspace tools!\n",
-    );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error("\nError during setup:", message);
-    console.error("Please try again.\n");
+    console.error(`\n  Error: ${message}\n`);
     process.exit(1);
   } finally {
     rl.close();
