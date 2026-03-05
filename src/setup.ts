@@ -2,6 +2,7 @@ import { google } from "googleapis";
 import * as fs from "fs";
 import * as path from "path";
 import * as http from "http";
+import { execSync } from "child_process";
 import { URL } from "url";
 import open from "open";
 import * as clack from "@clack/prompts";
@@ -32,6 +33,21 @@ function bail(msg?: string): never {
 function cancelled(value: unknown): value is symbol {
   if (clack.isCancel(value)) bail();
   return false;
+}
+
+function copyToClipboard(text: string): boolean {
+  try {
+    const cmd =
+      process.platform === "win32"
+        ? "clip"
+        : process.platform === "darwin"
+          ? "pbcopy"
+          : "xclip -selection clipboard";
+    execSync(cmd, { input: text, stdio: ["pipe", "ignore", "ignore"] });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function configDir(): string {
@@ -258,21 +274,41 @@ function getClaudeCodeCmd(
   return `claude mcp add google-workspace-${name} -e ${envParts.join(" -e ")} -- npx -y ${PKG_NAME}`;
 }
 
-function showAccountConfig(
+async function showAccountConfig(
   name: string,
   clientId: string,
   clientSecret: string,
   hasBuiltIn: boolean,
-): void {
-  clack.note(
-    getMcpConfigJson(name, clientId, clientSecret, hasBuiltIn),
-    "MCP config (Claude Desktop / Air.dev / Cursor)",
-  );
+): Promise<void> {
+  const mcpJson = getMcpConfigJson(name, clientId, clientSecret, hasBuiltIn);
+  const claudeCmd = getClaudeCodeCmd(name, clientId, clientSecret, hasBuiltIn);
 
-  clack.note(
-    getClaudeCodeCmd(name, clientId, clientSecret, hasBuiltIn),
-    "Claude Code command",
-  );
+  clack.note(mcpJson, "MCP config (Claude Desktop / Air.dev / Cursor)");
+  clack.note(claudeCmd, "Claude Code command");
+
+  const action = await clack.select({
+    message: "Copy to clipboard?",
+    options: [
+      { value: "mcp", label: "Copy MCP config JSON" },
+      { value: "claude", label: "Copy Claude Code command" },
+      { value: "skip", label: "Skip" },
+    ],
+  });
+  if (cancelled(action)) return;
+
+  if (action === "mcp") {
+    if (copyToClipboard(mcpJson)) {
+      clack.log.success("MCP config copied to clipboard!");
+    } else {
+      clack.log.warning("Could not copy — please select and copy manually.");
+    }
+  } else if (action === "claude") {
+    if (copyToClipboard(claudeCmd)) {
+      clack.log.success("Claude Code command copied to clipboard!");
+    } else {
+      clack.log.warning("Could not copy — please select and copy manually.");
+    }
+  }
 }
 
 // ── Credential resolution ────────────────────────────────────
@@ -454,7 +490,7 @@ export async function runSetup(): Promise<void> {
         });
 
         clack.log.success(`Account "${cleanName}" saved!`);
-        showAccountConfig(cleanName, clientId, clientSecret, isBuiltIn);
+        await showAccountConfig(cleanName, clientId, clientSecret, isBuiltIn);
       } catch (err: unknown) {
         clack.log.error(err instanceof Error ? err.message : String(err));
       }
@@ -484,7 +520,7 @@ export async function runSetup(): Promise<void> {
     if (cancelled(action)) continue;
 
     if (action === "config" && cfg) {
-      showAccountConfig(accountName, cfg.clientId, cfg.clientSecret, isBuiltIn);
+      await showAccountConfig(accountName, cfg.clientId, cfg.clientSecret, isBuiltIn);
     }
 
     if (action === "reauth") {
