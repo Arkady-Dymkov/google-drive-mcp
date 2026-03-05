@@ -2,34 +2,29 @@
 
 Connect AI assistants (Claude Desktop, Air.dev, etc.) to Google Drive, Docs, Sheets, Calendar, and Gmail via the Model Context Protocol. 67 tools. Supports multiple Google accounts.
 
-## Quick Setup (for customers)
-
-If your admin gave you a Client ID and Secret, setup is two steps:
+## Quick Setup
 
 ### 1. Authorize your Google account
 
 ```bash
-GOOGLE_CLIENT_ID="<client-id-from-admin>" \
-GOOGLE_CLIENT_SECRET="<client-secret-from-admin>" \
 npx adw-google-mcp --setup
 ```
 
 Your browser opens. Click "Allow". Done.
 
-### 2. Add to your AI client
+If credentials aren't built into the package, your admin can provide them via env vars:
+```bash
+GOOGLE_CLIENT_ID="..." GOOGLE_CLIENT_SECRET="..." npx adw-google-mcp --setup
+```
 
-Add the config your admin gave you (or the one printed after setup) to your MCP client:
+### 2. Add to your AI client
 
 ```json
 {
   "mcpServers": {
     "google-workspace": {
       "command": "npx",
-      "args": ["-y", "adw-google-mcp"],
-      "env": {
-        "GOOGLE_CLIENT_ID": "<client-id-from-admin>",
-        "GOOGLE_CLIENT_SECRET": "<client-secret-from-admin>"
-      }
+      "args": ["-y", "adw-google-mcp"]
     }
   }
 }

@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import * as fs from "fs";
+import * as path from "path";
 import * as readline from "readline";
 import * as http from "http";
 import { URL } from "url";
@@ -116,20 +117,47 @@ function extractCredentialsFromJson(
   }
 }
 
+// ── Built-in defaults (injected at publish time by CI) ────
+
+function loadBuiltInDefaults(): {
+  clientId: string;
+  clientSecret: string;
+} | null {
+  try {
+    const dir = new URL(".", import.meta.url).pathname;
+    const defaultsPath = path.join(dir, "defaults.json");
+    if (fs.existsSync(defaultsPath)) {
+      const data = JSON.parse(fs.readFileSync(defaultsPath, "utf-8"));
+      if (data.clientId && data.clientSecret) return data;
+    }
+  } catch {
+    // defaults.json doesn't exist or is invalid — that's fine
+  }
+  return null;
+}
+
 // ── Credential resolution ─────────────────────────────────
-// Priority: 1) env vars  2) existing config  3) JSON file  4) manual input
+// Priority: 1) env vars  2) built-in defaults  3) existing config  4) JSON file  5) manual input
 
 async function resolveCredentials(
   rl: readline.Interface,
   configPath: string,
 ): Promise<{ clientId: string; clientSecret: string }> {
-  // 1) Environment variables (for distributed setups — customers don't need their own project)
+  // 1) Environment variables
   const envClientId = process.env.GOOGLE_CLIENT_ID;
   const envClientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (envClientId && envClientSecret) {
     console.log("Using credentials from GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET env vars.");
     console.log(`  Client ID: ${envClientId.substring(0, 20)}...\n`);
     return { clientId: envClientId, clientSecret: envClientSecret };
+  }
+
+  // 2) Built-in defaults (baked into the npm package by CI)
+  const builtIn = loadBuiltInDefaults();
+  if (builtIn) {
+    console.log("Using built-in credentials.");
+    console.log(`  Client ID: ${builtIn.clientId.substring(0, 20)}...\n`);
+    return builtIn;
   }
 
   // 2) Existing config (re-authorization with same credentials)
@@ -198,9 +226,10 @@ export async function runSetup(): Promise<void> {
   const configDir = getConfigDir();
   const profileName = process.env.GOOGLE_DRIVE_PROFILE || "default";
 
-  // Check if credentials come from env vars (non-interactive mode)
+  // Check if credentials are pre-configured (env vars or built-in defaults)
   const hasEnvCreds =
-    process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET;
+    (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) ||
+    loadBuiltInDefaults() !== null;
 
   const rl = readline.createInterface({
     input: process.stdin,

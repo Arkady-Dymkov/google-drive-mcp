@@ -1,82 +1,82 @@
 # Publishing adw-google-mcp to npm
 
-This document explains how to publish the package so that users can install and run it with `npx adw-google-mcp` without cloning the repo.
+## How it works
 
-## How npx works
+When published, `npx adw-google-mcp` downloads the package from npm and runs it. The package includes `build/defaults.json` with your Google OAuth credentials baked in, so customers just run `--setup` and authorize — no Google Cloud project needed on their end.
 
-`npx adw-google-mcp` does the following:
+The credentials are injected by GitHub Actions during publish (never stored in the repo).
 
-1. Checks if `adw-google-mcp` is already installed locally or globally
-2. If not, downloads it from the npm registry into a temporary cache
-3. Finds the binary defined in `package.json` → `"bin": { "adw-google-mcp": "build/index.js" }`
-4. Executes `node build/index.js`
+## One-time setup
 
-The `-y` flag (`npx -y adw-google-mcp`) skips the "install?" confirmation prompt, which is important for MCP client configs where there's no interactive terminal.
+### 1. npm account
 
-This only works once the package is published to npm.
+Create one at https://www.npmjs.com/signup if you don't have one.
 
-## Prerequisites
+### 2. GitHub repository secrets
 
-1. An npm account — create one at https://www.npmjs.com/signup
-2. npm CLI logged in:
-   ```bash
-   npm login
-   ```
-3. The project builds successfully:
-   ```bash
-   npm run build
-   ```
+Go to your repo → Settings → Secrets and variables → Actions → New repository secret.
 
-## Pre-publish checklist
+Add these three secrets:
 
-```bash
-# 1. Make sure you're on a clean state
-git status
+| Secret name | Value | Where to get it |
+|---|---|---|
+| `NPM_TOKEN` | npm access token | npmjs.com → Access Tokens → Generate New Token (Automation) |
+| `GOOGLE_CLIENT_ID` | Your OAuth client ID | Google Cloud Console → Credentials → OAuth 2.0 Client IDs |
+| `GOOGLE_CLIENT_SECRET` | Your OAuth client secret | Same place as above |
 
-# 2. Build
-npm run build
+### 3. Google Cloud project (one-time)
 
-# 3. Check what will be published (should only include build/, README.md, LICENSE)
-npm pack --dry-run
-
-# 4. Verify package.json has correct:
-#    - "name": "adw-google-mcp"
-#    - "version": matches what you want to publish
-#    - "bin": points to "build/index.js"
-#    - "files": ["build/", "README.md", "LICENSE"]
-```
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a project, enable: Drive, Docs, Sheets, Calendar, Gmail APIs
+3. Configure OAuth consent screen → User type: External → Publish App
+4. Create OAuth client ID (Desktop app type)
+5. Copy the Client ID and Client Secret → add as GitHub secrets above
 
 ## Publishing
 
-```bash
-# First time
-npm publish
+Publishing happens automatically when you create a GitHub release:
 
-# Subsequent updates — bump version first
-npm version patch   # 2.0.0 → 2.0.1 (bug fixes)
-npm version minor   # 2.0.0 → 2.1.0 (new features)
-npm version major   # 2.0.0 → 3.0.0 (breaking changes)
+1. Bump version: `npm version patch` (or `minor` / `major`)
+2. Push: `git push && git push --tags`
+3. Go to GitHub → Releases → Create release from the new tag
+4. GitHub Actions runs: builds → injects credentials → publishes to npm
+
+### What the CI does
+
+```
+npm ci                          # Install dependencies
+npm run build                   # Compile TypeScript
+echo '{...}' > build/defaults.json  # Inject OAuth credentials from secrets
+npm publish                     # Publish to npm with credentials baked in
+```
+
+The `build/defaults.json` file:
+- Is NOT in the git repo (`build/` is gitignored)
+- IS in the npm package (`package.json` files: `["build/"]`)
+- Contains `{ "clientId": "...", "clientSecret": "..." }`
+
+### Manual publishing (alternative)
+
+If you prefer not to use GitHub Actions:
+
+```bash
+npm run build
+echo '{"clientId":"YOUR_ID","clientSecret":"YOUR_SECRET"}' > build/defaults.json
 npm publish
 ```
 
 ## After publishing
 
-Users can immediately:
+Customers install and authorize in two commands:
 
 ```bash
-# Run setup (interactive OAuth wizard)
+# First time only — authorize Google account
 npx adw-google-mcp --setup
 
-# Or with a profile
-GOOGLE_DRIVE_PROFILE=work npx adw-google-mcp --setup
-```
-
-And configure their MCP client:
-
-```json
+# MCP client config (no env vars needed!)
 {
   "mcpServers": {
-    "google-drive": {
+    "google-workspace": {
       "command": "npx",
       "args": ["-y", "adw-google-mcp"]
     }
@@ -84,48 +84,28 @@ And configure their MCP client:
 }
 ```
 
-## What gets published
+## Credential priority
 
-The `"files"` field in package.json controls what's included in the npm tarball:
+The setup wizard resolves credentials in this order:
 
-```
-adw-google-mcp/
-├── build/           # Compiled JS + declaration files + source maps
-│   ├── index.js     # Entry point (has #!/usr/bin/env node shebang)
-│   ├── server.js
-│   ├── auth.js
-│   ├── setup.js
-│   ├── types.js
-│   ├── utils.js
-│   └── services/
-│       ├── drive.js
-│       ├── docs.js
-│       └── sheets.js
-├── README.md
-├── LICENSE
-└── package.json     # Always included automatically
-```
+1. `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` env vars (explicit override)
+2. `build/defaults.json` built into the npm package (from CI)
+3. Existing config file (re-authorization)
+4. OAuth JSON file or manual input (DIY fallback)
 
-Source TypeScript files, node_modules, config files, and dev tooling are NOT published.
+## Testing locally
 
-## Verifying a published version
+To test the defaults.json flow before publishing:
 
 ```bash
-# Check published package info
-npm view adw-google-mcp
-
-# Test that npx works (from a directory outside this project)
-cd /tmp && npx adw-google-mcp --setup
+npm run build
+echo '{"clientId":"YOUR_ID","clientSecret":"YOUR_SECRET"}' > build/defaults.json
+node build/index.js --setup
 ```
 
-## Unpublishing (emergency only)
+## Security notes
 
-```bash
-# Within 72 hours of publishing
-npm unpublish adw-google-mcp@2.0.0
-```
-
-After 72 hours, you can only deprecate:
-```bash
-npm deprecate adw-google-mcp@2.0.0 "Use version X.Y.Z instead"
-```
+- The client ID/secret for Desktop OAuth apps are not truly secret (Google acknowledges this for native apps)
+- The actual security comes from the OAuth flow itself — each user must consent in their browser
+- Users' refresh tokens are stored locally in `~/.config/google-drive-mcp/`, never shared
+- The 100-user cap applies until you complete Google's app verification process
