@@ -12,6 +12,7 @@ import { DriveService } from "./services/drive.js";
 import { DocsService } from "./services/docs.js";
 import { SheetsService } from "./services/sheets.js";
 import { CalendarService } from "./services/calendar.js";
+import { GmailService } from "./services/gmail.js";
 
 export class GoogleDriveMCPServer {
   private server: Server;
@@ -34,6 +35,7 @@ export class GoogleDriveMCPServer {
       new DocsService(),
       new SheetsService(),
       new CalendarService(),
+      new GmailService(),
     ];
 
     this.server = new Server(

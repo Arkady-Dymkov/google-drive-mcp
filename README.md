@@ -1,6 +1,6 @@
 # Google Workspace MCP Server
 
-Connect AI assistants (Claude Desktop, Air.dev, etc.) to Google Drive, Docs, Sheets, and Calendar via the Model Context Protocol. 52 tools. Supports multiple Google accounts.
+Connect AI assistants (Claude Desktop, Air.dev, etc.) to Google Drive, Docs, Sheets, Calendar, and Gmail via the Model Context Protocol. 67 tools. Supports multiple Google accounts.
 
 ## Quick Setup
 
@@ -8,7 +8,7 @@ Connect AI assistants (Claude Desktop, Air.dev, etc.) to Google Drive, Docs, She
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a new project
-3. Enable these APIs: Google Drive API, Google Docs API, Google Sheets API, Google Calendar API
+3. Enable these APIs: Google Drive API, Google Docs API, Google Sheets API, Google Calendar API, Gmail API
 4. Go to "APIs & Services" > "Credentials"
 5. Configure OAuth consent screen (User type: "External", add your email as test user)
 6. Create OAuth client ID (Type: "Desktop app") and download the JSON file
@@ -164,6 +164,24 @@ Each profile stores credentials separately in `~/.config/google-drive-mcp/`.
 | `respond_to_event` | Accept, decline, or tentatively respond to invitations |
 | `list_recurring_instances` | List all occurrences of a recurring event |
 | `move_event` | Move event to a different calendar |
+
+### Gmail
+| Tool | Description |
+|------|-------------|
+| `search_emails` | Search emails using Gmail query syntax |
+| `read_email` | Read full email content, headers, and attachment info |
+| `send_email` | Send email with to/cc/bcc, plain text or HTML |
+| `reply_to_email` | Reply within a thread (reply or reply-all) |
+| `draft_email` | Create email draft for review before sending |
+| `send_draft` | Send an existing draft |
+| `modify_email` | Add/remove labels (archive, mark read/unread, star, etc.) |
+| `trash_email` | Move email to trash |
+| `list_threads` | List email threads/conversations |
+| `get_thread` | Get full thread with all messages |
+| `list_labels` | List all Gmail labels (system and user) |
+| `create_label` / `delete_label` | Create or delete labels |
+| `batch_modify_emails` | Modify labels on multiple emails at once |
+| `batch_trash_emails` | Trash multiple emails at once |
 
 ---
 

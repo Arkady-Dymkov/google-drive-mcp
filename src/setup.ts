@@ -13,6 +13,8 @@ const OAUTH_SCOPES = [
   "https://www.googleapis.com/auth/documents",
   "https://www.googleapis.com/auth/spreadsheets",
   "https://www.googleapis.com/auth/calendar",
+  "https://www.googleapis.com/auth/gmail.modify",
+  "https://www.googleapis.com/auth/gmail.send",
 ];
 
 const OAUTH_PORT = 3000;
@@ -139,7 +141,7 @@ export async function runSetup(): Promise<void> {
     console.log("This wizard will help you set up Google Drive access.\n");
     console.log("Prerequisites:");
     console.log("  1. Google Cloud project created");
-    console.log("  2. Drive, Docs, Sheets, and Calendar APIs enabled");
+    console.log("  2. Drive, Docs, Sheets, Calendar, and Gmail APIs enabled");
     console.log(
       "  3. OAuth 2.0 credentials (Desktop app) created and downloaded\n",
     );
