@@ -12,6 +12,7 @@ import {
   MIN_MARKDOWN_LENGTH,
   MIN_CONTENT_HTML_LENGTH,
 } from "../utils.js";
+import { markdownToHtml, documentToMarkdown } from "../markdown.js";
 
 export class DocsService implements Service {
   private docs!: docs_v1.Docs;
@@ -275,6 +276,159 @@ export class DocsService implements Service {
           },
         },
         handler: (args) => this.batchUpdate(args),
+      },
+      {
+        tool: {
+          name: "read_document_as_markdown",
+          description:
+            "Read a Google Doc and return its content as Markdown, preserving headings, bold, italic, links, lists, and tables.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              documentId: {
+                type: "string",
+                description: "The ID of the Google Doc to read",
+              },
+            },
+            required: ["documentId"],
+          },
+        },
+        handler: (args) => this.readDocumentAsMarkdown(args),
+      },
+      {
+        tool: {
+          name: "create_document_from_markdown",
+          description:
+            "Create a new Google Doc from Markdown content with full formatting: headings, bold, italic, links, lists, tables, code blocks, blockquotes, and images.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              title: {
+                type: "string",
+                description: "Title of the new document",
+              },
+              markdown: {
+                type: "string",
+                description: "Markdown content to convert into a formatted Google Doc",
+              },
+              folderId: {
+                type: "string",
+                description: "Optional folder ID to create the document in",
+              },
+            },
+            required: ["title", "markdown"],
+          },
+        },
+        handler: (args) => this.createDocumentFromMarkdown(args),
+      },
+      {
+        tool: {
+          name: "insert_text",
+          description:
+            "Insert text at a specific position (index) in a Google Doc. Use read_document_as_markdown or read_document to find positions.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              documentId: {
+                type: "string",
+                description: "The ID of the Google Doc",
+              },
+              text: {
+                type: "string",
+                description: "The text to insert",
+              },
+              index: {
+                type: "number",
+                description: "The 1-based index position to insert at",
+              },
+            },
+            required: ["documentId", "text", "index"],
+          },
+        },
+        handler: (args) => this.insertText(args),
+      },
+      {
+        tool: {
+          name: "delete_range",
+          description:
+            "Delete content in a Google Doc between two index positions.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              documentId: {
+                type: "string",
+                description: "The ID of the Google Doc",
+              },
+              startIndex: {
+                type: "number",
+                description: "Start index of the range to delete (inclusive)",
+              },
+              endIndex: {
+                type: "number",
+                description: "End index of the range to delete (exclusive)",
+              },
+            },
+            required: ["documentId", "startIndex", "endIndex"],
+          },
+        },
+        handler: (args) => this.deleteRange(args),
+      },
+      {
+        tool: {
+          name: "insert_image",
+          description:
+            "Insert an image into a Google Doc from a URL at a specific position.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              documentId: {
+                type: "string",
+                description: "The ID of the Google Doc",
+              },
+              imageUrl: {
+                type: "string",
+                description: "The publicly accessible URL of the image",
+              },
+              index: {
+                type: "number",
+                description:
+                  "The 1-based index position to insert at. If not provided, inserts at the end.",
+              },
+              width: {
+                type: "number",
+                description: "Optional width in points (72 points = 1 inch)",
+              },
+              height: {
+                type: "number",
+                description: "Optional height in points (72 points = 1 inch)",
+              },
+            },
+            required: ["documentId", "imageUrl"],
+          },
+        },
+        handler: (args) => this.insertImage(args),
+      },
+      {
+        tool: {
+          name: "insert_page_break",
+          description: "Insert a page break at a specific position in a Google Doc.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              documentId: {
+                type: "string",
+                description: "The ID of the Google Doc",
+              },
+              index: {
+                type: "number",
+                description:
+                  "The 1-based index position. If not provided, inserts at the end.",
+              },
+            },
+            required: ["documentId"],
+          },
+        },
+        handler: (args) => this.insertPageBreak(args),
       },
     ];
   }
@@ -778,6 +932,151 @@ export class DocsService implements Service {
 
     return textResponse(
       `Batch update completed successfully!\nOperations executed: ${requests.length}\nReplies received: ${repliesCount}\nDocument: https://docs.google.com/document/d/${documentId}/edit`,
+    );
+  }
+
+  private async readDocumentAsMarkdown(args: Record<string, unknown>) {
+    const documentId = requireString(args, "documentId");
+
+    const doc = await this.docs.documents.get({ documentId });
+    const title = doc.data.title || "Untitled";
+    const markdown = documentToMarkdown(doc.data);
+
+    return textResponse(`# ${title}\n\n${markdown}`);
+  }
+
+  private async createDocumentFromMarkdown(args: Record<string, unknown>) {
+    const title = requireString(args, "title");
+    const markdown = requireString(args, "markdown");
+    const folderId = optionalString(args, "folderId");
+
+    const html = `<html><head><title>${title}</title></head><body>${markdownToHtml(markdown)}</body></html>`;
+
+    const { Readable } = await import("stream");
+    const response = await this.drive.files.create({
+      requestBody: {
+        name: title,
+        mimeType: "application/vnd.google-apps.document",
+        parents: folderId ? [folderId] : undefined,
+      },
+      media: {
+        mimeType: "text/html",
+        body: Readable.from(Buffer.from(html, "utf-8")),
+      },
+      fields: "id, name, webViewLink",
+    });
+
+    const file = response.data;
+    return textResponse(
+      `Document created from Markdown!\nTitle: ${title}\nID: ${file.id}\nURL: ${file.webViewLink}`,
+    );
+  }
+
+  private async insertText(args: Record<string, unknown>) {
+    const documentId = requireString(args, "documentId");
+    const text = requireString(args, "text");
+    const index = requireNumber(args, "index");
+
+    await this.docs.documents.batchUpdate({
+      documentId,
+      requestBody: {
+        requests: [{ insertText: { location: { index }, text } }],
+      },
+    });
+
+    return textResponse(
+      `Text inserted at index ${index}.\nDocument: https://docs.google.com/document/d/${documentId}/edit`,
+    );
+  }
+
+  private async deleteRange(args: Record<string, unknown>) {
+    const documentId = requireString(args, "documentId");
+    const startIndex = requireNumber(args, "startIndex");
+    const endIndex = requireNumber(args, "endIndex");
+
+    await this.docs.documents.batchUpdate({
+      documentId,
+      requestBody: {
+        requests: [
+          {
+            deleteContentRange: {
+              range: { startIndex, endIndex },
+            },
+          },
+        ],
+      },
+    });
+
+    return textResponse(
+      `Deleted range [${startIndex}, ${endIndex}).\nDocument: https://docs.google.com/document/d/${documentId}/edit`,
+    );
+  }
+
+  private async insertImage(args: Record<string, unknown>) {
+    const documentId = requireString(args, "documentId");
+    const imageUrl = requireString(args, "imageUrl");
+    const width = optionalNumber(args, "width");
+    const height = optionalNumber(args, "height");
+    let index = optionalNumber(args, "index");
+
+    if (!index) {
+      const doc = await this.docs.documents.get({ documentId });
+      const content = doc.data.body?.content || [];
+      index = this.getDocumentEndIndex(content) - 1;
+    }
+
+    const request: docs_v1.Schema$Request = {
+      insertInlineImage: {
+        location: { index },
+        uri: imageUrl,
+      },
+    };
+
+    if (width || height) {
+      request.insertInlineImage!.objectSize = {};
+      if (width) {
+        request.insertInlineImage!.objectSize.width = {
+          magnitude: width,
+          unit: "PT",
+        };
+      }
+      if (height) {
+        request.insertInlineImage!.objectSize.height = {
+          magnitude: height,
+          unit: "PT",
+        };
+      }
+    }
+
+    await this.docs.documents.batchUpdate({
+      documentId,
+      requestBody: { requests: [request] },
+    });
+
+    return textResponse(
+      `Image inserted at index ${index}.\nDocument: https://docs.google.com/document/d/${documentId}/edit`,
+    );
+  }
+
+  private async insertPageBreak(args: Record<string, unknown>) {
+    const documentId = requireString(args, "documentId");
+    let index = optionalNumber(args, "index");
+
+    if (!index) {
+      const doc = await this.docs.documents.get({ documentId });
+      const content = doc.data.body?.content || [];
+      index = this.getDocumentEndIndex(content) - 1;
+    }
+
+    await this.docs.documents.batchUpdate({
+      documentId,
+      requestBody: {
+        requests: [{ insertPageBreak: { location: { index } } }],
+      },
+    });
+
+    return textResponse(
+      `Page break inserted at index ${index}.\nDocument: https://docs.google.com/document/d/${documentId}/edit`,
     );
   }
 }

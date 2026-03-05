@@ -99,15 +99,17 @@ Each profile stores credentials separately in `~/.config/google-drive-mcp/`.
 | `list_files` | List files and folders with pagination |
 | `search_files` | Search using Drive query syntax |
 | `read_file` | Read any file (auto-exports Google formats) |
-| `read_document` | Read Google Docs with formatting |
-| `read_restricted_document` | Read protected/view-only docs (outputs Markdown) |
+| `read_document` | Read Google Docs as plain text |
+| `read_document_as_markdown` | Read Google Docs as Markdown (preserves formatting, headings, lists, tables) |
+| `read_restricted_document` | Read protected/view-only docs via mobilebasic endpoint |
 | `read_spreadsheet` | Read Google Sheets data |
 | `get_file_metadata` | Get detailed file information |
 
 ### Creating & Managing Files
 | Tool | Description |
 |------|-------------|
-| `create_document` | Create new Google Docs |
+| `create_document` | Create new Google Docs with plain text |
+| `create_document_from_markdown` | Create formatted Google Docs from Markdown (headings, bold, italic, links, tables, lists, code blocks, images) |
 | `create_folder` | Create new folders |
 | `upload_file` | Upload files to Drive |
 | `move_file` | Move files/folders |
@@ -115,10 +117,14 @@ Each profile stores credentials separately in `~/.config/google-drive-mcp/`.
 ### Editing Google Docs
 | Tool | Description |
 |------|-------------|
+| `insert_text` | Insert text at a specific index position |
+| `delete_range` | Delete content between two index positions |
 | `append_text_to_document` | Append text to end of document |
 | `replace_text_in_document` | Find and replace text |
 | `format_text_in_document` | Apply formatting (bold, italic, color, etc.) |
 | `insert_table_in_document` | Insert table at end of document |
+| `insert_image` | Insert image from URL at a position |
+| `insert_page_break` | Insert page break at a position |
 | `update_paragraph_style_in_document` | Change alignment, spacing, or lists |
 | `batch_update_document` | Execute multiple raw API operations atomically |
 
