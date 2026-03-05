@@ -793,8 +793,13 @@ export class GmailService implements Service {
       },
     });
 
+    const messageId = response.data.message?.id;
+    const draftLink = messageId
+      ? `https://mail.google.com/mail/#drafts/${messageId}`
+      : "https://mail.google.com/mail/#drafts";
+
     return textResponse(
-      `Draft created!\nDraft ID: ${response.data.id}\nTo: ${to}\nSubject: ${subject}\nMessage ID: ${response.data.message?.id}`,
+      `Draft created!\nDraft ID: ${response.data.id}\nTo: ${to}\nSubject: ${subject}\nMessage ID: ${messageId}\nOpen in Gmail: ${draftLink}`,
     );
   }
 
