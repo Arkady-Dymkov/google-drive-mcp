@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Google Drive MCP Server - A Model Context Protocol server that connects AI assistants (Claude Desktop, Air.dev, etc.) to Google Drive. Enables reading, creating, and managing Google Drive files through the MCP interface. Supports multiple Google accounts via profiles.
+Google Drive MCP Server - A Model Context Protocol server that connects AI assistants (Claude Desktop, Air.dev, etc.) to Google Drive, Docs, and Sheets. Supports multiple Google accounts via profiles.
 
 Distributed via npm: users run `npx adw-google-mcp` (no cloning needed).
 
@@ -31,9 +31,10 @@ GOOGLE_DRIVE_PROFILE=personal npm run setup
 | `setup.ts` | Interactive OAuth setup wizard |
 | `types.ts` | Shared interfaces (`Service`, `ToolDefinition`, `AppConfig`) |
 | `utils.ts` | Validation helpers, error formatting, response builders |
-| `services/drive.ts` | Drive file operations (list, search, upload, move, etc.) |
-| `services/docs.ts` | Google Docs operations (read, create, edit, format) |
-| `services/sheets.ts` | Google Sheets operations (read) |
+| `markdown.ts` | Markdown <-> HTML and Markdown <-> Google Docs JSON converters (zero deps) |
+| `services/drive.ts` | Drive file operations (7 tools: list, search, read, upload, move, etc.) |
+| `services/docs.ts` | Google Docs operations (15 tools: read/write markdown, format, tables, images, etc.) |
+| `services/sheets.ts` | Google Sheets operations (18 tools: read/write, format, charts, sort, etc.) |
 
 **Adding a new service** (e.g., Gmail):
 1. Create `src/services/gmail.ts` implementing the `Service` interface
@@ -49,6 +50,13 @@ GOOGLE_DRIVE_PROFILE=personal npm run setup
 - `google-auth-library` - OAuth2 authentication
 - `cheerio` + `turndown` - HTML parsing and Markdown conversion for restricted documents
 - `@modelcontextprotocol/sdk` - MCP protocol implementation
+
+## Tool Count
+
+- **Drive**: 7 tools (list, search, read, metadata, create folder, upload, move)
+- **Docs**: 15 tools (read plain/markdown/restricted, create plain/markdown, insert text/image/page break/table, delete range, replace, format, paragraph style, batch update)
+- **Sheets**: 18 tools (read, write, append, clear, create, add/delete sheet, insert/delete rows/cols, format, merge, column width, freeze, sort, find/replace, charts, batch update)
+- **Total**: 40 tools
 
 ## TypeScript Configuration
 
