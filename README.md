@@ -1,50 +1,27 @@
 # Google Drive MCP Server
 
-Connect AI assistants (Air.dev, Claude Desktop, etc.) to your Google Drive.
+Connect AI assistants (Claude Desktop, Air.dev, etc.) to your Google Drive via the Model Context Protocol. Supports multiple Google accounts.
 
-## 🚀 Quick Setup (5 minutes)
+## Quick Setup
 
-### Step 1: Install
-
-```bash
-npm install
-```
-```bash
-npm run build
-```
-
-### Step 2: Get Google OAuth Credentials
-**Important:** Each person needs their own credentials. Don't share OAuth files!
+### 1. Get Google OAuth Credentials
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a new project
-3. Enable these APIs:
-   - Google Drive API
-   - Google Docs API
-   - Google Sheets API
+3. Enable these APIs: Google Drive API, Google Docs API, Google Sheets API
 4. Go to "APIs & Services" > "Credentials"
-5. Configure OAuth consent screen (first time only):
-   - User type: "External"
-   - Add your email as test user
-6. Create OAuth client ID:
-   - Type: "Desktop app"
-   - Download the JSON file
+5. Configure OAuth consent screen (User type: "External", add your email as test user)
+6. Create OAuth client ID (Type: "Desktop app") and download the JSON file
 
-### Step 3: Run Setup
+### 2. Run Setup
 
 ```bash
-npm run setup
+npx adw-google-mcp --setup
 ```
 
-- Answer "y" when asked about JSON file
-- Drag and drop your downloaded JSON file
-- Browser will open automatically for authorization
-- Click "Allow" to grant permissions
-- Done! ✅
+Answer "y" when asked about JSON file, drag & drop it, authorize in browser. Done.
 
-### Step 4: Configure Your AI Client
-
-#### For Air.dev:
+### 3. Configure Your AI Client
 
 Add to your MCP configuration:
 
@@ -52,128 +29,144 @@ Add to your MCP configuration:
 {
   "mcpServers": {
     "google-drive": {
-      "command": "node",
-      "args": ["/FULL/PATH/TO/drive-mcp/build/index.js"]
+      "command": "npx",
+      "args": ["-y", "adw-google-mcp"]
     }
   }
 }
 ```
 
-Replace `/FULL/PATH/TO/` with your actual path (shown after setup completes).
+**Config file locations:**
+- **Air.dev:** Settings > MCP Servers
+- **Claude Desktop:** `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 
-#### For Claude Desktop:
-
-Edit your config file:
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-- Linux: `~/.config/Claude/claude_desktop_config.json`
-
-Add the same configuration as above.
-
-### Step 5: Restart & Test
+### 4. Restart & Test
 
 Restart your AI client and ask:
 - "List my Google Drive files"
 - "Read the document called [name]"
 - "Search for files with [keyword]"
 
-## 🛠️ What Can It Do?
+---
 
-Your AI can now:
-- ✅ List and browse files/folders
-- ✅ Search for specific files
-- ✅ Read Google Docs (including restricted/protected documents with Markdown formatting)
-- ✅ Read Google Sheets
-- ✅ Create new documents and folders
-- ✅ Upload files
-- ✅ Get file metadata
-
-## 🆘 Troubleshooting
-
-**"Authentication error" or "401 error"**
-- Make sure you completed the OAuth flow (visited the browser link)
-- Try running `npm run setup` again
-
-**"This app isn't verified" warning**
-- This is normal for personal projects
-- Click "Advanced" > "Continue" - it's safe, it's your own app
-
-**Server not showing in AI client**
-- Check the path in your config is absolute and correct
-- Restart your AI client completely
-
-**Port 3000 already in use**
-- Close apps using port 3000, or wait a minute and try again
-
-**Any other**
-- Contact @Arkadiy-DW in slack
-
-## 👥 For Team Distribution
-
-Each team member should:
-1. Clone/copy this folder
-2. Create their own Google Cloud project (free)
-3. Download their own OAuth JSON
-4. Run: `npm install && npm run build && npm run setup`
-5. Configure their AI client with their own path
-
-**Never share:**
-- ❌ OAuth JSON files
-- ❌ The `~/.google-drive-mcp/config.json` file
-- ❌ Credentials between team members
-
-## 🔒 Security
-
-- Your credentials stay on your machine (`~/.google-drive-mcp/config.json`)
-- OAuth2 secure authentication
-- Revoke access anytime at https://myaccount.google.com/permissions
-
-## 📋 Project Structure
-
-```
-drive-mcp/
-├── src/index.ts          # MCP server code
-├── setup.mjs             # Interactive setup script
-├── package.json          # Dependencies
-├── tsconfig.json         # TypeScript config
-└── build/                # Compiled output (generated)
-```
-
-## 🔄 Updating
-
-If code is updated:
+## Multiple Google Accounts
 
 ```bash
-git pull
-npm install
-npm run build
+GOOGLE_DRIVE_PROFILE=work npx adw-google-mcp --setup
+GOOGLE_DRIVE_PROFILE=personal npx adw-google-mcp --setup
 ```
 
-Your credentials remain intact - no need to run setup again.
+```json
+{
+  "mcpServers": {
+    "google-drive-work": {
+      "command": "npx",
+      "args": ["-y", "adw-google-mcp"],
+      "env": {
+        "GOOGLE_DRIVE_PROFILE": "work",
+        "GOOGLE_DRIVE_SERVER_NAME": "google-drive-work"
+      }
+    },
+    "google-drive-personal": {
+      "command": "npx",
+      "args": ["-y", "adw-google-mcp"],
+      "env": {
+        "GOOGLE_DRIVE_PROFILE": "personal",
+        "GOOGLE_DRIVE_SERVER_NAME": "google-drive-personal"
+      }
+    }
+  }
+}
+```
 
-## 📚 Available Tools
+Each profile stores credentials separately in `~/.config/google-drive-mcp/`.
 
-- **list_files** - List files and folders with pagination
-- **search_files** - Search for files using queries
-- **read_file** - Read any file content (exports Google formats)
-- **read_document** - Read Google Docs with formatting
-- **read_restricted_document** - Read protected/restricted documents with Markdown formatting
-- **read_spreadsheet** - Read Google Sheets data
-- **get_file_metadata** - Get detailed file information
-- **create_document** - Create new Google Docs
-- **create_folder** - Create new folders
-- **upload_file** - Upload files to Drive
+### Environment Variables
 
-### When to Use read_restricted_document
-
-Use `read_restricted_document` instead of `read_document` when:
-- The regular API returns permission/access denied errors
-- Document content appears incomplete or truncated
-- Document is shared with view-only restricted access
-- You get "forbidden to download" errors
-
-This tool uses Google's mobilebasic endpoint to extract HTML content from restricted documents and converts it to clean Markdown format, preserving headers, lists, links, and other formatting.
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `GOOGLE_DRIVE_PROFILE` | Profile name | `work`, `personal` |
+| `GOOGLE_DRIVE_CONFIG` | Full custom config path (overrides profile) | `/path/to/config.json` |
+| `GOOGLE_DRIVE_SERVER_NAME` | Server name visible to AI | `google-drive-work` |
 
 ---
 
-**Need help?** Check troubleshooting section or open an issue.
+## Available Tools
+
+### Reading Files
+| Tool | Description |
+|------|-------------|
+| `list_files` | List files and folders with pagination |
+| `search_files` | Search using Drive query syntax |
+| `read_file` | Read any file (auto-exports Google formats) |
+| `read_document` | Read Google Docs with formatting |
+| `read_restricted_document` | Read protected/view-only docs (outputs Markdown) |
+| `read_spreadsheet` | Read Google Sheets data |
+| `get_file_metadata` | Get detailed file information |
+
+### Creating & Managing Files
+| Tool | Description |
+|------|-------------|
+| `create_document` | Create new Google Docs |
+| `create_folder` | Create new folders |
+| `upload_file` | Upload files to Drive |
+| `move_file` | Move files/folders |
+
+### Editing Google Docs
+| Tool | Description |
+|------|-------------|
+| `append_text_to_document` | Append text to end of document |
+| `replace_text_in_document` | Find and replace text |
+| `format_text_in_document` | Apply formatting (bold, italic, color, etc.) |
+| `insert_table_in_document` | Insert table at end of document |
+| `update_paragraph_style_in_document` | Change alignment, spacing, or lists |
+| `batch_update_document` | Execute multiple raw API operations atomically |
+
+---
+
+## Development
+
+```bash
+git clone <repo-url>
+cd drive-mcp
+npm install
+npm run build
+npm run setup   # Interactive OAuth setup
+```
+
+### Project Structure
+
+```
+src/
+  index.ts              Entry point (--setup flag routing)
+  server.ts             MCP server orchestration
+  auth.ts               OAuth config management
+  setup.ts              Interactive setup wizard
+  types.ts              Shared types
+  utils.ts              Validation and helpers
+  services/
+    drive.ts            Drive file operations
+    docs.ts             Google Docs operations
+    sheets.ts           Google Sheets operations
+```
+
+Adding a new Google service (e.g., Gmail): create `src/services/gmail.ts` implementing the `Service` interface, then register it in `server.ts`.
+
+---
+
+## Troubleshooting
+
+**"Authentication error" or "401 error"** - Run `npx adw-google-mcp --setup` again.
+
+**"This app isn't verified" warning** - Click "Advanced" > "Continue" (it's your own app).
+
+**Port 3000 already in use** - Close apps using port 3000 and try again.
+
+---
+
+## Security
+
+- Credentials stay on your machine in `~/.config/google-drive-mcp/`
+- OAuth2 authentication (no passwords stored)
+- Revoke access anytime at https://myaccount.google.com/permissions
+- Never share OAuth JSON files or config files between users

@@ -1,22 +1,31 @@
 {
-  "name": "google-drive-mcp-server",
-  "version": "1.0.0",
-  "description": "MCP server for Google Drive access",
+  "name": "adw-google-mcp",
+  "version": "2.0.0",
+  "description": "MCP server for Google Drive, Docs, and Sheets. Connects AI assistants to your Google Drive via the Model Context Protocol.",
   "type": "module",
   "main": "build/index.js",
   "bin": {
-    "google-drive-mcp": "build/index.js"
+    "adw-google-mcp": "build/index.js"
   },
+  "files": [
+    "build/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "prepare": "npm run build",
-    "setup": "node setup.mjs"
+    "setup": "node build/index.js --setup",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "mcp",
     "google-drive",
-    "model-context-protocol"
+    "google-docs",
+    "google-sheets",
+    "model-context-protocol",
+    "claude",
+    "ai-tools"
   ],
   "author": "",
   "license": "MIT",
@@ -25,7 +34,6 @@
     "cheerio": "^1.1.2",
     "google-auth-library": "^9.0.0",
     "googleapis": "^144.0.0",
-    "node-fetch": "^3.3.2",
     "open": "^11.0.0",
     "turndown": "^7.2.2"
   },
