@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Google Drive MCP Server - A Model Context Protocol server that connects AI assistants (Claude Desktop, Air.dev, etc.) to Google Drive, Docs, and Sheets. Supports multiple Google accounts via profiles.
+Google Workspace MCP Server - A Model Context Protocol server that connects AI assistants (Claude Desktop, Air.dev, etc.) to Google Drive, Docs, Sheets, and Calendar. Supports multiple Google accounts via profiles.
 
 Distributed via npm: users run `npx adw-google-mcp` (no cloning needed).
 
@@ -35,6 +35,7 @@ GOOGLE_DRIVE_PROFILE=personal npm run setup
 | `services/drive.ts` | Drive file operations (7 tools: list, search, read, upload, move, etc.) |
 | `services/docs.ts` | Google Docs operations (15 tools: read/write markdown, format, tables, images, etc.) |
 | `services/sheets.ts` | Google Sheets operations (18 tools: read/write, format, charts, sort, etc.) |
+| `services/calendar.ts` | Google Calendar operations (12 tools: events CRUD, scheduling, recurrence, etc.) |
 
 **Adding a new service** (e.g., Gmail):
 1. Create `src/services/gmail.ts` implementing the `Service` interface
@@ -46,7 +47,7 @@ GOOGLE_DRIVE_PROFILE=personal npm run setup
 - `GOOGLE_DRIVE_SERVER_NAME` - Custom server name for AI to distinguish accounts
 
 **Key dependencies**:
-- `googleapis` - Google Drive, Docs, Sheets APIs
+- `googleapis` - Google Drive, Docs, Sheets, Calendar APIs
 - `google-auth-library` - OAuth2 authentication
 - `cheerio` + `turndown` - HTML parsing and Markdown conversion for restricted documents
 - `@modelcontextprotocol/sdk` - MCP protocol implementation
@@ -56,7 +57,8 @@ GOOGLE_DRIVE_PROFILE=personal npm run setup
 - **Drive**: 7 tools (list, search, read, metadata, create folder, upload, move)
 - **Docs**: 15 tools (read plain/markdown/restricted, create plain/markdown, insert text/image/page break/table, delete range, replace, format, paragraph style, batch update)
 - **Sheets**: 18 tools (read, write, append, clear, create, add/delete sheet, insert/delete rows/cols, format, merge, column width, freeze, sort, find/replace, charts, batch update)
-- **Total**: 40 tools
+- **Calendar**: 12 tools (list calendars, list/get/search/create/update/delete events, quick add, free/busy, respond, recurring instances, move)
+- **Total**: 52 tools
 
 ## TypeScript Configuration
 

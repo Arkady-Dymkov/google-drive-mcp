@@ -1,6 +1,6 @@
-# Google Drive MCP Server
+# Google Workspace MCP Server
 
-Connect AI assistants (Claude Desktop, Air.dev, etc.) to your Google Drive via the Model Context Protocol. Supports multiple Google accounts.
+Connect AI assistants (Claude Desktop, Air.dev, etc.) to Google Drive, Docs, Sheets, and Calendar via the Model Context Protocol. 52 tools. Supports multiple Google accounts.
 
 ## Quick Setup
 
@@ -8,7 +8,7 @@ Connect AI assistants (Claude Desktop, Air.dev, etc.) to your Google Drive via t
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a new project
-3. Enable these APIs: Google Drive API, Google Docs API, Google Sheets API
+3. Enable these APIs: Google Drive API, Google Docs API, Google Sheets API, Google Calendar API
 4. Go to "APIs & Services" > "Credentials"
 5. Configure OAuth consent screen (User type: "External", add your email as test user)
 6. Create OAuth client ID (Type: "Desktop app") and download the JSON file
@@ -148,6 +148,22 @@ Each profile stores credentials separately in `~/.config/google-drive-mcp/`.
 | `find_replace_in_sheet` | Find and replace text across sheets |
 | `create_chart` | Create bar, line, pie, column, area, scatter charts |
 | `batch_update_spreadsheet` | Execute raw Sheets API operations (conditional formatting, data validation, etc.) |
+
+### Google Calendar
+| Tool | Description |
+|------|-------------|
+| `list_calendars` | List all calendars with IDs and access roles |
+| `list_events` | List events in a time range (default: next 7 days) |
+| `get_event` | Get full event details by ID |
+| `search_events` | Search events by text across title, description, location |
+| `create_event` | Create events with attendees, Google Meet, recurrence, reminders, colors |
+| `update_event` | Update any event fields (partial update) |
+| `delete_event` | Delete events with optional attendee notification |
+| `quick_add_event` | Create event from natural language ("Lunch with Bob tomorrow at noon") |
+| `get_freebusy` | Check availability across calendars for scheduling |
+| `respond_to_event` | Accept, decline, or tentatively respond to invitations |
+| `list_recurring_instances` | List all occurrences of a recurring event |
+| `move_event` | Move event to a different calendar |
 
 ---
 

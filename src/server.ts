@@ -11,6 +11,7 @@ import { formatApiError, errorResponse } from "./utils.js";
 import { DriveService } from "./services/drive.js";
 import { DocsService } from "./services/docs.js";
 import { SheetsService } from "./services/sheets.js";
+import { CalendarService } from "./services/calendar.js";
 
 export class GoogleDriveMCPServer {
   private server: Server;
@@ -32,6 +33,7 @@ export class GoogleDriveMCPServer {
       new DriveService(),
       new DocsService(),
       new SheetsService(),
+      new CalendarService(),
     ];
 
     this.server = new Server(
