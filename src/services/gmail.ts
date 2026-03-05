@@ -89,7 +89,7 @@ function fmtMessage(msg: gmail_v1.Schema$Message, full = false): string {
     if (attachments.length) {
       lines.push(`  Attachments:`);
       for (const a of attachments) {
-        lines.push(`    - ${a.filename} (${a.mimeType}, ${a.size} bytes)`);
+        lines.push(`    - ${a.filename} (${a.mimeType}, ${a.size} bytes, attachmentId: ${a.attachmentId})`);
       }
     }
   }
