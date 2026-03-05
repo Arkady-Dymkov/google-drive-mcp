@@ -1043,9 +1043,12 @@ export class SheetsService implements Service {
       replacement,
       matchCase,
       matchEntireCell,
-      allSheets: sheetId === undefined,
     };
-    if (sheetId !== undefined) request.sheetId = sheetId;
+    if (sheetId !== undefined) {
+      request.sheetId = sheetId;
+    } else {
+      request.allSheets = true;
+    }
 
     const response = await this.sheets.spreadsheets.batchUpdate({
       spreadsheetId,
