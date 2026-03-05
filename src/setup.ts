@@ -366,7 +366,6 @@ async function resolveCredentials(): Promise<{
 // ── Main ─────────────────────────────────────────────────────
 
 export async function runSetup(): Promise<void> {
-  console.clear();
   clack.intro("Google Workspace MCP — Setup");
 
   const { clientId, clientSecret, isBuiltIn } = await resolveCredentials();
@@ -375,29 +374,48 @@ export async function runSetup(): Promise<void> {
   while (true) {
     const accounts = listAccounts();
 
-    const options: Array<{
+    const accountOptions: Array<{
       value: string;
       label: string;
       hint?: string;
-    }> = [];
+    }> = accounts.map((name) => ({
+      value: `account:${name}`,
+      label: name,
+      hint: "configured",
+    }));
 
-    for (const name of accounts) {
-      options.push({ value: `account:${name}`, label: name, hint: "configured" });
-    }
+    const actionOptions: Array<{
+      value: string;
+      label: string;
+      hint?: string;
+    }> = [{ value: "__add", label: "Add new account" }];
 
-    options.push({ value: "__add", label: "Add new account" });
     if (accounts.length > 0) {
-      options.push({ value: "__quit", label: "Done", hint: "exit setup" });
+      actionOptions.push({
+        value: "__quit",
+        label: "Done",
+        hint: "exit setup",
+      });
     }
+
+    const options =
+      accountOptions.length > 0
+        ? [
+            ...accountOptions,
+            { value: "__sep", label: "─".repeat(30), hint: "" },
+            ...actionOptions,
+          ]
+        : actionOptions;
 
     const choice = await clack.select({
       message:
         accounts.length > 0
-          ? `${accounts.length} account(s) configured. Select to manage or add new:`
+          ? `${accounts.length} account(s) configured`
           : "No accounts yet. Let's add one:",
       options,
     });
     if (cancelled(choice)) break;
+    if (choice === "__sep") continue;
 
     // ── Add account ──
     if (choice === "__add") {
@@ -497,11 +515,9 @@ export async function runSetup(): Promise<void> {
   }
 
   const finalCount = listAccounts().length;
-  if (finalCount > 0) {
-    clack.outro(
-      `${finalCount} account(s) ready. Restart your AI client to use them.`,
-    );
-  } else {
-    clack.outro("No accounts configured. Run --setup again to add one.");
-  }
+  const msg =
+    finalCount > 0
+      ? `${finalCount} account(s) ready. Restart your AI client to use them.`
+      : "No accounts configured. Run --setup again to add one.";
+  clack.outro(msg);
 }
