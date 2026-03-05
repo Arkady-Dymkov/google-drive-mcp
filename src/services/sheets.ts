@@ -497,6 +497,58 @@ export class SheetsService implements Service {
         },
         handler: (a) => this.batchUpdateSpreadsheet(a),
       },
+      {
+        tool: {
+          name: "rename_sheet",
+          description: "Rename a sheet (tab) in a spreadsheet.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              spreadsheetId: { type: "string", description: "The ID of the Google Sheet" },
+              sheetId: { type: "number", description: "Numeric sheet ID" },
+              newName: { type: "string", description: "New name for the sheet" },
+            },
+            required: ["spreadsheetId", "sheetId", "newName"],
+          },
+        },
+        handler: (a) => this.renameSheet(a),
+      },
+      {
+        tool: {
+          name: "duplicate_sheet",
+          description: "Duplicate a sheet (tab) within the same spreadsheet or to another spreadsheet.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              spreadsheetId: { type: "string", description: "The ID of the Google Sheet" },
+              sheetId: { type: "number", description: "Numeric sheet ID to duplicate" },
+              newName: { type: "string", description: "Name for the duplicated sheet" },
+              destinationSpreadsheetId: {
+                type: "string",
+                description: "Optional: ID of another spreadsheet to copy to",
+              },
+            },
+            required: ["spreadsheetId", "sheetId"],
+          },
+        },
+        handler: (a) => this.duplicateSheet(a),
+      },
+      {
+        tool: {
+          name: "unmerge_cells",
+          description: "Unmerge previously merged cells in a range.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              spreadsheetId: { type: "string", description: "The ID of the Google Sheet" },
+              sheetName: { type: "string", description: "Name of the sheet" },
+              cellRange: { type: "string", description: "Range to unmerge (e.g., 'A1:C1')" },
+            },
+            required: ["spreadsheetId", "sheetName", "cellRange"],
+          },
+        },
+        handler: (a) => this.unmergeCells(a),
+      },
     ];
   }
 
@@ -1047,7 +1099,7 @@ export class SheetsService implements Service {
             ],
           },
         },
-        targetAxis: "LEFT_AXIS",
+        targetAxis: chartType === "BAR" ? "BOTTOM_AXIS" : "LEFT_AXIS",
       });
     }
 
@@ -1143,5 +1195,97 @@ export class SheetsService implements Service {
     return textResponse(
       `Batch update completed! Operations: ${requests.length}, Replies: ${repliesCount}`,
     );
+  }
+
+  private async renameSheet(args: Record<string, unknown>) {
+    const spreadsheetId = requireString(args, "spreadsheetId");
+    const sheetId = requireNumber(args, "sheetId");
+    const newName = requireString(args, "newName");
+
+    await this.sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            updateSheetProperties: {
+              properties: { sheetId, title: newName },
+              fields: "title",
+            },
+          },
+        ],
+      },
+    });
+
+    return textResponse(`Sheet ${sheetId} renamed to "${newName}".`);
+  }
+
+  private async duplicateSheet(args: Record<string, unknown>) {
+    const spreadsheetId = requireString(args, "spreadsheetId");
+    const sheetId = requireNumber(args, "sheetId");
+    const newName = optionalString(args, "newName");
+    const destinationSpreadsheetId = optionalString(args, "destinationSpreadsheetId");
+
+    const response = await this.sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            duplicateSheet: {
+              sourceSheetId: sheetId,
+              newSheetName: newName || undefined,
+              insertSheetIndex: 0,
+              newSheetId: undefined,
+            },
+          },
+        ],
+      },
+    });
+
+    const props = response.data.replies?.[0]?.duplicateSheet?.properties;
+
+    if (destinationSpreadsheetId) {
+      await this.sheets.spreadsheets.sheets.copyTo({
+        spreadsheetId,
+        sheetId,
+        requestBody: { destinationSpreadsheetId },
+      });
+      return textResponse(
+        `Sheet copied to spreadsheet ${destinationSpreadsheetId}.`,
+      );
+    }
+
+    return textResponse(
+      `Sheet duplicated! New sheet: "${props?.title}" (sheetId: ${props?.sheetId})`,
+    );
+  }
+
+  private async unmergeCells(args: Record<string, unknown>) {
+    const spreadsheetId = requireString(args, "spreadsheetId");
+    const sheetName = requireString(args, "sheetName");
+    const cellRange = requireString(args, "cellRange");
+
+    const sheetId = await this.getSheetId(spreadsheetId, sheetName);
+    const grid = parseGridRange(cellRange);
+
+    await this.sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            unmergeCells: {
+              range: {
+                sheetId,
+                startRowIndex: grid.startRow,
+                endRowIndex: grid.endRow,
+                startColumnIndex: grid.startCol,
+                endColumnIndex: grid.endCol,
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    return textResponse(`Unmerged ${sheetName}!${cellRange}.`);
   }
 }

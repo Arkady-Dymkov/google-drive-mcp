@@ -487,6 +487,79 @@ export class GmailService implements Service {
         },
         handler: (a) => this.batchTrashEmails(a),
       },
+      // ── Attachments ───────────────────────────────────
+      {
+        tool: {
+          name: "get_attachment",
+          description:
+            "Get the content of an email attachment. Returns the data as base64-encoded string.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              messageId: { type: "string", description: "The message ID containing the attachment" },
+              attachmentId: {
+                type: "string",
+                description: "The attachment ID (from read_email attachment info)",
+              },
+            },
+            required: ["messageId", "attachmentId"],
+          },
+        },
+        handler: (a) => this.getAttachment(a),
+      },
+      // ── Drafts ────────────────────────────────────────
+      {
+        tool: {
+          name: "list_drafts",
+          description: "List email drafts in the mailbox.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              maxResults: {
+                type: "number",
+                description: "Max drafts to return (default: 20)",
+              },
+              query: {
+                type: "string",
+                description: "Optional Gmail search query to filter drafts",
+              },
+            },
+          },
+        },
+        handler: (a) => this.listDrafts(a),
+      },
+      {
+        tool: {
+          name: "delete_draft",
+          description: "Permanently delete a draft (not trash — immediate deletion).",
+          inputSchema: {
+            type: "object",
+            properties: {
+              draftId: { type: "string", description: "The draft ID to delete" },
+            },
+            required: ["draftId"],
+          },
+        },
+        handler: (a) => this.deleteDraft(a),
+      },
+      // ── Label management ──────────────────────────────
+      {
+        tool: {
+          name: "update_label",
+          description: "Update a Gmail label's name or colors.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              labelId: { type: "string", description: "The label ID to update" },
+              name: { type: "string", description: "New label name" },
+              backgroundColor: { type: "string", description: "Background color hex (e.g., '#16a765')" },
+              textColor: { type: "string", description: "Text color hex (e.g., '#ffffff')" },
+            },
+            required: ["labelId"],
+          },
+        },
+        handler: (a) => this.updateLabel(a),
+      },
     ];
   }
 
@@ -854,5 +927,97 @@ export class GmailService implements Service {
     }
 
     return textResponse(`Trashed ${messageIds.length} messages.`);
+  }
+
+  // ── Attachments ────────────────────────────────────────
+
+  private async getAttachment(args: Record<string, unknown>) {
+    const messageId = requireString(args, "messageId");
+    const attachmentId = requireString(args, "attachmentId");
+
+    const response = await this.gmail.users.messages.attachments.get({
+      userId: "me",
+      messageId,
+      id: attachmentId,
+    });
+
+    const data = response.data.data || "";
+    const size = response.data.size || 0;
+
+    return textResponse(
+      `Attachment retrieved (${size} bytes).\nBase64 data:\n${data}`,
+    );
+  }
+
+  // ── Drafts ─────────────────────────────────────────────
+
+  private async listDrafts(args: Record<string, unknown>) {
+    const maxResults = optionalNumber(args, "maxResults") || 20;
+    const query = optionalString(args, "query");
+
+    const response = await this.gmail.users.drafts.list({
+      userId: "me",
+      maxResults,
+      q: query || undefined,
+    });
+
+    const drafts = response.data.drafts || [];
+    if (drafts.length === 0) {
+      return textResponse("No drafts found.");
+    }
+
+    const lines: string[] = [];
+    for (const d of drafts) {
+      const draft = await this.gmail.users.drafts.get({
+        userId: "me",
+        id: d.id!,
+        format: "metadata",
+      });
+      const h = draft.data.message?.payload?.headers;
+      lines.push(
+        `- Draft ID: ${d.id}\n  To: ${getHeader(h, "To")}\n  Subject: ${getHeader(h, "Subject")}\n  Message ID: ${draft.data.message?.id}`,
+      );
+    }
+
+    return textResponse(`Found ${drafts.length} drafts:\n\n${lines.join("\n\n")}`);
+  }
+
+  private async deleteDraft(args: Record<string, unknown>) {
+    const draftId = requireString(args, "draftId");
+
+    await this.gmail.users.drafts.delete({
+      userId: "me",
+      id: draftId,
+    });
+
+    return textResponse(`Draft ${draftId} permanently deleted.`);
+  }
+
+  // ── Label management ───────────────────────────────────
+
+  private async updateLabel(args: Record<string, unknown>) {
+    const labelId = requireString(args, "labelId");
+    const name = optionalString(args, "name");
+    const backgroundColor = optionalString(args, "backgroundColor");
+    const textColor = optionalString(args, "textColor");
+
+    const update: gmail_v1.Schema$Label = {};
+    if (name) update.name = name;
+    if (backgroundColor || textColor) {
+      update.color = {
+        backgroundColor: backgroundColor || undefined,
+        textColor: textColor || undefined,
+      };
+    }
+
+    const response = await this.gmail.users.labels.patch({
+      userId: "me",
+      id: labelId,
+      requestBody: update,
+    });
+
+    return textResponse(
+      `Label updated: "${response.data.name}" (ID: ${response.data.id})`,
+    );
   }
 }

@@ -201,6 +201,104 @@ export class DriveService implements Service {
         },
         handler: (args) => this.moveFile(args),
       },
+      {
+        tool: {
+          name: "trash_file",
+          description: "Move a file or folder to the trash in Google Drive.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              fileId: {
+                type: "string",
+                description: "The ID of the file or folder to trash",
+              },
+            },
+            required: ["fileId"],
+          },
+        },
+        handler: (args) => this.trashFile(args),
+      },
+      {
+        tool: {
+          name: "rename_file",
+          description: "Rename a file or folder in Google Drive.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              fileId: {
+                type: "string",
+                description: "The ID of the file or folder to rename",
+              },
+              newName: {
+                type: "string",
+                description: "The new name for the file or folder",
+              },
+            },
+            required: ["fileId", "newName"],
+          },
+        },
+        handler: (args) => this.renameFile(args),
+      },
+      {
+        tool: {
+          name: "copy_file",
+          description:
+            "Create a copy of a file in Google Drive. Can optionally place the copy in a specific folder.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              fileId: {
+                type: "string",
+                description: "The ID of the file to copy",
+              },
+              name: {
+                type: "string",
+                description: "Name for the copy (defaults to 'Copy of <original>')",
+              },
+              folderId: {
+                type: "string",
+                description: "Optional folder ID to place the copy in",
+              },
+            },
+            required: ["fileId"],
+          },
+        },
+        handler: (args) => this.copyFile(args),
+      },
+      {
+        tool: {
+          name: "share_file",
+          description:
+            "Share a file or folder with a user, group, or make it accessible via link.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              fileId: {
+                type: "string",
+                description: "The ID of the file or folder to share",
+              },
+              role: {
+                type: "string",
+                enum: ["reader", "commenter", "writer", "organizer"],
+                description: "Permission role",
+              },
+              type: {
+                type: "string",
+                enum: ["user", "group", "domain", "anyone"],
+                description:
+                  "Who to share with. Use 'anyone' for link sharing.",
+              },
+              emailAddress: {
+                type: "string",
+                description:
+                  "Email address (required for type 'user' or 'group')",
+              },
+            },
+            required: ["fileId", "role", "type"],
+          },
+        },
+        handler: (args) => this.shareFile(args),
+      },
     ];
   }
 
@@ -393,5 +491,75 @@ export class DriveService implements Service {
     return textResponse(
       `${itemType} moved successfully!\nName: ${movedFile.name}\nID: ${movedFile.id}\nNew location: ${location}\nURL: ${movedFile.webViewLink}`,
     );
+  }
+
+  private async trashFile(args: Record<string, unknown>) {
+    const fileId = requireString(args, "fileId");
+
+    const response = await this.drive.files.update({
+      fileId,
+      requestBody: { trashed: true },
+      fields: "id, name, trashed",
+    });
+
+    return textResponse(`"${response.data.name}" moved to trash.`);
+  }
+
+  private async renameFile(args: Record<string, unknown>) {
+    const fileId = requireString(args, "fileId");
+    const newName = requireString(args, "newName");
+
+    const response = await this.drive.files.update({
+      fileId,
+      requestBody: { name: newName },
+      fields: "id, name, webViewLink",
+    });
+
+    return textResponse(
+      `Renamed to "${response.data.name}"\nID: ${response.data.id}\nURL: ${response.data.webViewLink}`,
+    );
+  }
+
+  private async copyFile(args: Record<string, unknown>) {
+    const fileId = requireString(args, "fileId");
+    const name = optionalString(args, "name");
+    const folderId = optionalString(args, "folderId");
+
+    const requestBody: drive_v3.Schema$File = {};
+    if (name) requestBody.name = name;
+    if (folderId) requestBody.parents = [folderId];
+
+    const response = await this.drive.files.copy({
+      fileId,
+      requestBody,
+      fields: "id, name, webViewLink",
+    });
+
+    return textResponse(
+      `File copied!\nName: ${response.data.name}\nID: ${response.data.id}\nURL: ${response.data.webViewLink}`,
+    );
+  }
+
+  private async shareFile(args: Record<string, unknown>) {
+    const fileId = requireString(args, "fileId");
+    const role = requireString(args, "role");
+    const type = requireString(args, "type");
+    const emailAddress = optionalString(args, "emailAddress");
+
+    const permission: drive_v3.Schema$Permission = { role, type };
+    if (emailAddress) permission.emailAddress = emailAddress;
+
+    await this.drive.permissions.create({
+      fileId,
+      requestBody: permission,
+      sendNotificationEmail: !!emailAddress,
+    });
+
+    const target =
+      type === "anyone"
+        ? "anyone with the link"
+        : `${emailAddress} (${type})`;
+
+    return textResponse(`Shared with ${target} as ${role}.`);
   }
 }

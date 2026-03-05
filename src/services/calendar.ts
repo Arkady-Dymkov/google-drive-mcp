@@ -461,6 +461,43 @@ export class CalendarService implements Service {
         },
         handler: (a) => this.moveEvent(a),
       },
+      {
+        tool: {
+          name: "create_calendar",
+          description: "Create a new Google Calendar.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              summary: { type: "string", description: "Name of the new calendar" },
+              description: { type: "string", description: "Optional description" },
+              timeZone: {
+                type: "string",
+                description: "Timezone (e.g., 'America/New_York'). Defaults to user's timezone.",
+              },
+            },
+            required: ["summary"],
+          },
+        },
+        handler: (a) => this.createCalendar(a),
+      },
+      {
+        tool: {
+          name: "delete_calendar",
+          description:
+            "Delete a secondary calendar. Cannot delete the primary calendar.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              calendarId: {
+                type: "string",
+                description: "The ID of the calendar to delete (not 'primary')",
+              },
+            },
+            required: ["calendarId"],
+          },
+        },
+        handler: (a) => this.deleteCalendar(a),
+      },
     ];
   }
 
@@ -817,5 +854,34 @@ export class CalendarService implements Service {
     return textResponse(
       `Event moved to calendar "${destinationCalendarId}".\n${this.fmtEventFull(response.data)}`,
     );
+  }
+
+  private async createCalendar(args: Record<string, unknown>) {
+    const summary = requireString(args, "summary");
+    const description = optionalString(args, "description");
+    const timeZone = optionalString(args, "timeZone");
+
+    const response = await this.cal.calendars.insert({
+      requestBody: {
+        summary,
+        description: description || undefined,
+        timeZone: timeZone || undefined,
+      },
+    });
+
+    return textResponse(
+      `Calendar created!\nName: ${response.data.summary}\nID: ${response.data.id}`,
+    );
+  }
+
+  private async deleteCalendar(args: Record<string, unknown>) {
+    const calendarId = requireString(args, "calendarId");
+
+    if (calendarId === "primary") {
+      throw new Error("Cannot delete the primary calendar.");
+    }
+
+    await this.cal.calendars.delete({ calendarId });
+    return textResponse(`Calendar "${calendarId}" deleted.`);
   }
 }
