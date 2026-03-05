@@ -107,13 +107,38 @@ function waitForOAuthCallback(port: number): Promise<string> {
       const code = u.searchParams.get("code");
       const error = u.searchParams.get("error");
 
-      const style = `body{font-family:system-ui;padding:60px;text-align:center;background:#f5f5f5}.c{background:#fff;padding:40px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.1);max-width:500px;margin:0 auto}p{color:#666}`;
+      const page = (icon: string, title: string, message: string, accent: string) => `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;
+  background:#1a1b26;color:#a9b1d6;font-family:'SF Mono',SFMono-Regular,ui-monospace,'DejaVu Sans Mono',Menlo,Consolas,monospace;font-size:14px}
+.card{border:1px solid #2a2b3d;border-radius:12px;padding:48px;max-width:480px;width:100%;text-align:center;background:#1e1f2e}
+.icon{font-size:48px;margin-bottom:16px}
+h1{color:${accent};font-size:20px;font-weight:600;margin-bottom:12px;font-family:inherit}
+.msg{color:#787c99;line-height:1.6;margin-bottom:24px}
+.bar{height:2px;background:linear-gradient(90deg,transparent,${accent},transparent);border-radius:1px;margin-bottom:24px}
+.hint{color:#565a6e;font-size:12px}
+.name{color:#7aa2f7;font-weight:600}
+</style></head>
+<body><div class="card">
+  <div class="icon">${icon}</div>
+  <div class="bar"></div>
+  <h1>${title}</h1>
+  <p class="msg">${message}</p>
+  <p class="hint">You can close this window and return to the terminal.</p>
+  <p class="hint" style="margin-top:8px"><span class="name">adw-google-mcp</span></p>
+</div></body></html>`;
 
       if (error) {
         res.writeHead(400, { "Content-Type": "text/html" });
-        res.end(
-          `<html><head><style>${style}</style></head><body><div class="c"><h1 style="color:#d32f2f">Authorization Failed</h1><p>${escapeHtml(error)}</p></div></body></html>`,
-        );
+        res.end(page(
+          "&#x2717;",
+          "Authorization Failed",
+          escapeHtml(error),
+          "#f7768e",
+        ));
         server.close();
         reject(new Error(`Authorization error: ${error}`));
         return;
@@ -121,9 +146,12 @@ function waitForOAuthCallback(port: number): Promise<string> {
 
       if (code) {
         res.writeHead(200, { "Content-Type": "text/html" });
-        res.end(
-          `<html><head><style>${style}</style></head><body><div class="c"><h1 style="color:#4caf50">Authorized!</h1><p>You can close this window.</p></div></body></html>`,
-        );
+        res.end(page(
+          "&#x2713;",
+          "Authorized!",
+          "Your Google account has been connected successfully.",
+          "#9ece6a",
+        ));
         server.close();
         resolve(code);
       }
