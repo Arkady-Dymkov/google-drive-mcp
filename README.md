@@ -1,6 +1,6 @@
 <div align="center">
 
-# adw-google-mcp
+# ADW Google MCP
 
 **Google Workspace MCP Server**
 
