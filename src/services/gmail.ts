@@ -560,6 +560,95 @@ export class GmailService implements Service {
         },
         handler: (a) => this.updateLabel(a),
       },
+      // ── Profile & counts ──────────────────────────────
+      {
+        tool: {
+          name: "get_profile",
+          description:
+            "Get the current user's Gmail profile: email address, total messages, total threads, and history ID.",
+          inputSchema: { type: "object", properties: {} },
+        },
+        handler: (a) => this.getProfile(a),
+      },
+      {
+        tool: {
+          name: "get_label_counts",
+          description:
+            "Get message and thread counts for a label (e.g., total and unread in INBOX). Useful for quick inbox summary without fetching messages.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              labelId: {
+                type: "string",
+                description:
+                  "Label ID (e.g., 'INBOX', 'UNREAD', 'STARRED', 'SENT', or a user label ID)",
+              },
+            },
+            required: ["labelId"],
+          },
+        },
+        handler: (a) => this.getLabelCounts(a),
+      },
+      // ── Filters ───────────────────────────────────────
+      {
+        tool: {
+          name: "create_filter",
+          description:
+            "Create a Gmail filter to auto-organize incoming emails. Matches criteria (from, to, subject, query) and applies actions (add labels, remove labels, forward).",
+          inputSchema: {
+            type: "object",
+            properties: {
+              from: { type: "string", description: "Match sender (e.g., 'newsletter@company.com')" },
+              to: { type: "string", description: "Match recipient" },
+              subject: { type: "string", description: "Match subject" },
+              query: {
+                type: "string",
+                description: "Gmail search query for matching (e.g., 'has:attachment larger:5M')",
+              },
+              hasAttachment: { type: "boolean", description: "Match only emails with attachments" },
+              addLabelIds: {
+                type: "array",
+                items: { type: "string" },
+                description:
+                  "Labels to add to matching emails (use list_labels to find IDs)",
+              },
+              removeLabelIds: {
+                type: "array",
+                items: { type: "string" },
+                description:
+                  "Labels to remove (e.g., ['INBOX'] to auto-archive, ['UNREAD'] to auto-read)",
+              },
+              forward: {
+                type: "string",
+                description: "Email address to forward matching emails to",
+              },
+            },
+          },
+        },
+        handler: (a) => this.createFilter(a),
+      },
+      {
+        tool: {
+          name: "list_filters",
+          description: "List all Gmail filters (auto-organization rules).",
+          inputSchema: { type: "object", properties: {} },
+        },
+        handler: (a) => this.listFilters(a),
+      },
+      {
+        tool: {
+          name: "delete_filter",
+          description: "Delete a Gmail filter by its ID.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              filterId: { type: "string", description: "The filter ID to delete" },
+            },
+            required: ["filterId"],
+          },
+        },
+        handler: (a) => this.deleteFilter(a),
+      },
     ];
   }
 
@@ -1019,5 +1108,121 @@ export class GmailService implements Service {
     return textResponse(
       `Label updated: "${response.data.name}" (ID: ${response.data.id})`,
     );
+  }
+
+  // ── Profile & counts ───────────────────────────────────
+
+  private async getProfile(_args: Record<string, unknown>) {
+    const response = await this.gmail.users.getProfile({ userId: "me" });
+    const p = response.data;
+
+    return textResponse(
+      `Email: ${p.emailAddress}\nTotal messages: ${p.messagesTotal}\nTotal threads: ${p.threadsTotal}\nHistory ID: ${p.historyId}`,
+    );
+  }
+
+  private async getLabelCounts(args: Record<string, unknown>) {
+    const labelId = requireString(args, "labelId");
+
+    const response = await this.gmail.users.labels.get({
+      userId: "me",
+      id: labelId,
+    });
+
+    const l = response.data;
+    return textResponse(
+      `Label: ${l.name} (${l.id})\nMessages: ${l.messagesTotal} total, ${l.messagesUnread} unread\nThreads: ${l.threadsTotal} total, ${l.threadsUnread} unread`,
+    );
+  }
+
+  // ── Filters ────────────────────────────────────────────
+
+  private async createFilter(args: Record<string, unknown>) {
+    const from = optionalString(args, "from");
+    const to = optionalString(args, "to");
+    const subject = optionalString(args, "subject");
+    const query = optionalString(args, "query");
+    const hasAttachment = optionalBoolean(args, "hasAttachment");
+    const addLabelIds = args.addLabelIds as string[] | undefined;
+    const removeLabelIds = args.removeLabelIds as string[] | undefined;
+    const forward = optionalString(args, "forward");
+
+    const criteria: gmail_v1.Schema$FilterCriteria = {};
+    if (from) criteria.from = from;
+    if (to) criteria.to = to;
+    if (subject) criteria.subject = subject;
+    if (query) criteria.query = query;
+    if (hasAttachment) criteria.hasAttachment = hasAttachment;
+
+    const action: gmail_v1.Schema$FilterAction = {};
+    if (addLabelIds?.length) action.addLabelIds = addLabelIds;
+    if (removeLabelIds?.length) action.removeLabelIds = removeLabelIds;
+    if (forward) action.forward = forward;
+
+    const response = await this.gmail.users.settings.filters.create({
+      userId: "me",
+      requestBody: { criteria, action },
+    });
+
+    const f = response.data;
+    const criteriaDesc: string[] = [];
+    if (from) criteriaDesc.push(`from:${from}`);
+    if (to) criteriaDesc.push(`to:${to}`);
+    if (subject) criteriaDesc.push(`subject:${subject}`);
+    if (query) criteriaDesc.push(`query:${query}`);
+    if (hasAttachment) criteriaDesc.push("has:attachment");
+
+    const actionDesc: string[] = [];
+    if (addLabelIds?.length) actionDesc.push(`add labels: ${addLabelIds.join(", ")}`);
+    if (removeLabelIds?.length) actionDesc.push(`remove labels: ${removeLabelIds.join(", ")}`);
+    if (forward) actionDesc.push(`forward to: ${forward}`);
+
+    return textResponse(
+      `Filter created!\nID: ${f.id}\nCriteria: ${criteriaDesc.join(", ")}\nActions: ${actionDesc.join(", ")}`,
+    );
+  }
+
+  private async listFilters(_args: Record<string, unknown>) {
+    const response = await this.gmail.users.settings.filters.list({
+      userId: "me",
+    });
+
+    const filters = response.data.filter || [];
+    if (filters.length === 0) {
+      return textResponse("No filters configured.");
+    }
+
+    const lines = filters.map((f) => {
+      const c = f.criteria || {};
+      const a = f.action || {};
+      const criteria: string[] = [];
+      if (c.from) criteria.push(`from:${c.from}`);
+      if (c.to) criteria.push(`to:${c.to}`);
+      if (c.subject) criteria.push(`subject:${c.subject}`);
+      if (c.query) criteria.push(`query:${c.query}`);
+      if (c.hasAttachment) criteria.push("has:attachment");
+
+      const actions: string[] = [];
+      if (a.addLabelIds?.length) actions.push(`+${a.addLabelIds.join(",")}`);
+      if (a.removeLabelIds?.length) actions.push(`-${a.removeLabelIds.join(",")}`);
+      if (a.forward) actions.push(`fwd:${a.forward}`);
+
+      return `- ID: ${f.id}\n  Match: ${criteria.join(", ") || "(any)"}\n  Actions: ${actions.join(", ")}`;
+    });
+
+    return textResponse(
+      `${filters.length} filter(s):\n\n${lines.join("\n\n")}`,
+    );
+  }
+
+  private async deleteFilter(args: Record<string, unknown>) {
+    const filterId = requireString(args, "filterId");
+
+    await this.gmail.users.settings.filters.delete({
+      userId: "me",
+      id: filterId,
+    });
+
+    return textResponse(`Filter ${filterId} deleted.`);
   }
 }
