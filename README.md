@@ -103,6 +103,7 @@ Each profile stores credentials separately in `~/.config/google-drive-mcp/`.
 | `read_document_as_markdown` | Read Google Docs as Markdown (preserves formatting, headings, lists, tables) |
 | `read_restricted_document` | Read protected/view-only docs via mobilebasic endpoint |
 | `read_spreadsheet` | Read Google Sheets data |
+| `get_spreadsheet_info` | Get spreadsheet metadata: sheets list, IDs, row/column counts |
 | `get_file_metadata` | Get detailed file information |
 
 ### Creating & Managing Files
@@ -127,6 +128,26 @@ Each profile stores credentials separately in `~/.config/google-drive-mcp/`.
 | `insert_page_break` | Insert page break at a position |
 | `update_paragraph_style_in_document` | Change alignment, spacing, or lists |
 | `batch_update_document` | Execute multiple raw API operations atomically |
+
+### Google Sheets
+| Tool | Description |
+|------|-------------|
+| `read_spreadsheet` | Read data from sheets with cell values |
+| `get_spreadsheet_info` | Get metadata: sheet names, IDs, dimensions |
+| `write_cells` | Write values/formulas to any range |
+| `append_rows` | Append rows after existing data (auto-detects end) |
+| `clear_cells` | Clear values in a range |
+| `create_spreadsheet` | Create new spreadsheet with custom tabs |
+| `add_sheet` / `delete_sheet` | Add or remove sheets (tabs) |
+| `insert_rows_columns` / `delete_rows_columns` | Insert or delete rows/columns |
+| `format_cells` | Bold, italic, colors, alignment, number format, wrap |
+| `merge_cells` | Merge cell ranges |
+| `set_column_width` | Set column widths in pixels |
+| `freeze_rows_columns` | Freeze header rows/columns |
+| `sort_range` | Sort data by column |
+| `find_replace_in_sheet` | Find and replace text across sheets |
+| `create_chart` | Create bar, line, pie, column, area, scatter charts |
+| `batch_update_spreadsheet` | Execute raw Sheets API operations (conditional formatting, data validation, etc.) |
 
 ---
 
