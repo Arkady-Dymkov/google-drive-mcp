@@ -1,8 +1,9 @@
 name: Publish to npm
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - "v*"
 
 jobs:
   publish:
@@ -17,15 +18,20 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
+      # Set package version from git tag (v1.2.3 -> 1.2.3)
+      - name: Set version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Publishing version: $VERSION"
+          npm version "$VERSION" --no-git-tag-version
+
       - run: npm ci
 
       - run: npm run build
 
       # Inject OAuth credentials into the build output.
-      # These are baked into the npm package so customers don't need
-      # their own Google Cloud project — they just run --setup and authorize.
-      # The defaults.json file is NOT in the git repo (build/ is gitignored),
-      # but IS in the npm package (package.json files: ["build/"]).
+      # Baked into the npm package so customers just run --setup and authorize.
+      # NOT in the git repo (build/ is gitignored), IS in the npm package.
       - name: Inject OAuth defaults
         run: |
           echo '{"clientId":"${{ secrets.GOOGLE_CLIENT_ID }}","clientSecret":"${{ secrets.GOOGLE_CLIENT_SECRET }}"}' > build/defaults.json

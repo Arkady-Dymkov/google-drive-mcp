@@ -34,20 +34,25 @@ Add these three secrets:
 
 ## Publishing
 
-Publishing happens automatically when you create a GitHub release:
+Publishing happens automatically when you push a version tag:
 
-1. Bump version: `npm version patch` (or `minor` / `major`)
-2. Push: `git push && git push --tags`
-3. Go to GitHub → Releases → Create release from the new tag
-4. GitHub Actions runs: builds → injects credentials → publishes to npm
+```bash
+git tag v2.1.0
+git push origin v2.1.0
+```
+
+GitHub Actions picks up the tag, sets the package version from it, builds, injects credentials, and publishes to npm.
+
+The version in `package.json` doesn't matter — CI overrides it from the tag (`v2.1.0` → `2.1.0`).
 
 ### What the CI does
 
 ```
-npm ci                          # Install dependencies
-npm run build                   # Compile TypeScript
-echo '{...}' > build/defaults.json  # Inject OAuth credentials from secrets
-npm publish                     # Publish to npm with credentials baked in
+npm version "2.1.0" --no-git-tag-version  # Set version from git tag
+npm ci                                     # Install dependencies
+npm run build                              # Compile TypeScript
+echo '{...}' > build/defaults.json         # Inject OAuth credentials from secrets
+npm publish                                # Publish to npm
 ```
 
 The `build/defaults.json` file:
