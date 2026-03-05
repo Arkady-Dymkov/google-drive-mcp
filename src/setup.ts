@@ -173,7 +173,7 @@ h1{color:${accent};font-size:20px;font-weight:600;margin-bottom:12px;font-family
       }
     });
 
-    server.listen(port);
+    server.listen(port, "127.0.0.1");
 
     server.on("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "EADDRINUSE") {

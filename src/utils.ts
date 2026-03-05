@@ -75,6 +75,17 @@ export function escapeHtml(str: string): string {
     .replace(/'/g, "&#039;");
 }
 
+export function requireNumber(
+  args: Record<string, unknown>,
+  field: string,
+): number {
+  const value = args[field];
+  if (typeof value !== "number") {
+    throw new Error(`'${field}' is required and must be a number`);
+  }
+  return value;
+}
+
 export function textResponse(text: string): ToolResponse {
   return { content: [{ type: "text", text }] };
 }

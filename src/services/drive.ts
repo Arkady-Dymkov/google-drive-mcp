@@ -21,6 +21,14 @@ const EXPORT_FORMATS: Record<string, string> = {
   [MIME_TYPES.PRESENTATION]: "text/plain",
 };
 
+function sanitizeDriveId(id: string): string {
+  // Drive IDs are alphanumeric with hyphens and underscores
+  if (!/^[a-zA-Z0-9_-]+$/.test(id) && id !== "root") {
+    throw new Error(`Invalid ID format: ${id}`);
+  }
+  return id;
+}
+
 export class DriveService implements Service {
   private drive!: drive_v3.Drive;
 
@@ -269,7 +277,7 @@ export class DriveService implements Service {
         tool: {
           name: "share_file",
           description:
-            "Share a file or folder with a user, group, or make it accessible via link.",
+            "Share a file or folder with a user, group, or make it accessible via link. WARNING: type 'anyone' makes the file publicly accessible on the internet. Always confirm with the user before sharing publicly.",
           inputSchema: {
             type: "object",
             properties: {
@@ -310,6 +318,7 @@ export class DriveService implements Service {
 
     let q = query || "";
     if (folderId) {
+      sanitizeDriveId(folderId);
       q = q
         ? `${q} and '${folderId}' in parents`
         : `'${folderId}' in parents`;
@@ -545,6 +554,10 @@ export class DriveService implements Service {
     const role = requireString(args, "role");
     const type = requireString(args, "type");
     const emailAddress = optionalString(args, "emailAddress");
+
+    if ((type === "user" || type === "group") && !emailAddress) {
+      throw new Error(`'emailAddress' is required when type is '${type}'`);
+    }
 
     const permission: drive_v3.Schema$Permission = { role, type };
     if (emailAddress) permission.emailAddress = emailAddress;

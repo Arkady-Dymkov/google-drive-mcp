@@ -107,7 +107,6 @@ function buildRawMessage(opts: {
   threadId?: string;
   isHtml?: boolean;
 }): string {
-  const boundary = `boundary_${Date.now()}`;
   const contentType = opts.isHtml ? "text/html" : "text/plain";
 
   const headers = [
@@ -987,6 +986,9 @@ export class GmailService implements Service {
     if (!Array.isArray(messageIds) || messageIds.length === 0) {
       throw new Error("'messageIds' must be a non-empty array");
     }
+    if (messageIds.length > 100) {
+      throw new Error("Maximum 100 messages per batch operation");
+    }
     const addLabelIds = args.addLabelIds as string[] | undefined;
     const removeLabelIds = args.removeLabelIds as string[] | undefined;
 
@@ -1008,6 +1010,9 @@ export class GmailService implements Service {
     const messageIds = args.messageIds as string[];
     if (!Array.isArray(messageIds) || messageIds.length === 0) {
       throw new Error("'messageIds' must be a non-empty array");
+    }
+    if (messageIds.length > 100) {
+      throw new Error("Maximum 100 messages per batch operation");
     }
 
     // Gmail API doesn't have batch trash — loop individually

@@ -13,6 +13,7 @@ dist/
 # Configuration files with secrets
 config.json
 oauth*.json
+ouath.json
 
 # IDE
 .vscode/

@@ -3,6 +3,7 @@ import type { OAuth2Client } from "google-auth-library";
 import type { Service, ToolDefinition } from "../types.js";
 import {
   requireString,
+  requireNumber,
   optionalString,
   optionalNumber,
   optionalBoolean,
@@ -43,11 +44,6 @@ function hexToRgb(hex: string): { red: number; green: number; blue: number } {
   };
 }
 
-function requireNumber(args: Record<string, unknown>, field: string): number {
-  const v = args[field];
-  if (typeof v !== "number") throw new Error(`'${field}' is required and must be a number`);
-  return v;
-}
 
 // ── Service ──────────────────────────────────────────────────
 

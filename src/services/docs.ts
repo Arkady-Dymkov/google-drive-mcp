@@ -5,6 +5,7 @@ import TurndownService from "turndown";
 import type { Service, ToolDefinition } from "../types.js";
 import {
   requireString,
+  requireNumber,
   optionalString,
   optionalNumber,
   optionalBoolean,
@@ -950,7 +951,8 @@ export class DocsService implements Service {
     const markdown = requireString(args, "markdown");
     const folderId = optionalString(args, "folderId");
 
-    const html = `<html><head><title>${title}</title></head><body>${markdownToHtml(markdown)}</body></html>`;
+    const safeTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const html = `<html><head><title>${safeTitle}</title></head><body>${markdownToHtml(markdown)}</body></html>`;
 
     const { Readable } = await import("stream");
     const response = await this.drive.files.create({
@@ -1081,13 +1083,3 @@ export class DocsService implements Service {
   }
 }
 
-function requireNumber(
-  args: Record<string, unknown>,
-  field: string,
-): number {
-  const value = args[field];
-  if (typeof value !== "number") {
-    throw new Error(`'${field}' is required and must be a number`);
-  }
-  return value;
-}

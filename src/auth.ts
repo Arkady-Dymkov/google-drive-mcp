@@ -43,9 +43,9 @@ export function loadConfig(configPath: string): AppConfig | null {
 export function saveConfig(configPath: string, config: AppConfig): void {
   const dir = path.dirname(configPath);
   if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
 }
 
 export function createAuthClient(config: AppConfig): OAuth2Client {
