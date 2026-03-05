@@ -123,38 +123,66 @@ function waitForOAuthCallback(port: number): Promise<string> {
       const code = u.searchParams.get("code");
       const error = u.searchParams.get("error");
 
-      const page = (icon: string, title: string, message: string, accent: string) => `<!DOCTYPE html>
+      const successHtml = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${title}</title>
+<title>Authorized</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{min-height:100vh;display:flex;align-items:center;justify-content:center;
-  background:#1a1b26;color:#a9b1d6;font-family:'SF Mono',SFMono-Regular,ui-monospace,'DejaVu Sans Mono',Menlo,Consolas,monospace;font-size:14px}
-.card{border:1px solid #2a2b3d;border-radius:12px;padding:48px;max-width:480px;width:100%;text-align:center;background:#1e1f2e}
-.icon{font-size:48px;margin-bottom:16px}
-h1{color:${accent};font-size:20px;font-weight:600;margin-bottom:12px;font-family:inherit}
-.msg{color:#787c99;line-height:1.6;margin-bottom:24px}
-.bar{height:2px;background:linear-gradient(90deg,transparent,${accent},transparent);border-radius:1px;margin-bottom:24px}
-.hint{color:#565a6e;font-size:12px}
-.name{color:#7aa2f7;font-weight:600}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#1a1b26;color:#c0caf5;font-family:'SF Mono',SFMono-Regular,ui-monospace,Menlo,Consolas,monospace}
+.page{max-width:520px;width:100%;padding:40px}
+.line{height:1px;background:#2a2b3d;margin:32px 0}
+.dot{width:10px;height:10px;border-radius:50%;background:#9ece6a;display:inline-block;margin-right:12px;vertical-align:middle}
+h1{font-size:32px;font-weight:600;margin-bottom:8px;color:#c0caf5}
+h1 span{color:#9ece6a}
+.sub{color:#565f89;font-size:15px;margin-bottom:0}
+.steps{margin-top:0}
+.steps li{color:#787c99;font-size:14px;line-height:2.2;list-style:none}
+.steps li::before{content:"";display:inline-block;width:6px;height:6px;border:1px solid #3b3d57;border-radius:1px;margin-right:10px;vertical-align:middle;transform:rotate(45deg)}
+.steps code{color:#7aa2f7;background:#1e1f2e;padding:2px 6px;border-radius:3px;font-size:13px}
+.footer{color:#3b3d57;font-size:12px;margin-top:32px}
 </style></head>
-<body><div class="card">
-  <div class="icon">${icon}</div>
-  <div class="bar"></div>
-  <h1>${title}</h1>
-  <p class="msg">${message}</p>
-  <p class="hint">You can close this window and return to the terminal.</p>
-  <p class="hint" style="margin-top:8px"><span class="name">adw-google-mcp</span></p>
+<body><div class="page">
+  <div><span class="dot"></span><span style="color:#9ece6a;font-size:14px">authorized</span></div>
+  <div class="line"></div>
+  <h1>You<span>'</span>re connected<span>.</span></h1>
+  <p class="sub">Return to the terminal to finish setup.</p>
+  <div class="line"></div>
+  <ul class="steps">
+    <li>The setup wizard will show your MCP configuration</li>
+    <li>Copy it with one click</li>
+    <li>Paste into your AI client and restart</li>
+  </ul>
+  <div class="line"></div>
+  <p class="footer">adw-google-mcp &middot; you can close this tab</p>
+</div></body></html>`;
+
+      const errorHtml = (msg: string) => `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Failed</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#1a1b26;color:#c0caf5;font-family:'SF Mono',SFMono-Regular,ui-monospace,Menlo,Consolas,monospace}
+.page{max-width:520px;width:100%;padding:40px}
+.line{height:1px;background:#2a2b3d;margin:32px 0}
+.dot{width:10px;height:10px;border-radius:50%;background:#f7768e;display:inline-block;margin-right:12px;vertical-align:middle}
+h1{font-size:32px;font-weight:600;color:#c0caf5}
+.err{color:#f7768e;font-size:14px;margin-top:12px;font-family:inherit}
+.hint{color:#565f89;font-size:14px;margin-top:20px}
+.footer{color:#3b3d57;font-size:12px;margin-top:32px}
+</style></head>
+<body><div class="page">
+  <div><span class="dot"></span><span style="color:#f7768e;font-size:14px">failed</span></div>
+  <div class="line"></div>
+  <h1>Authorization failed.</h1>
+  <p class="err">${msg}</p>
+  <p class="hint">Close this tab and try running setup again.</p>
+  <div class="line"></div>
+  <p class="footer">adw-google-mcp</p>
 </div></body></html>`;
 
       if (error) {
         res.writeHead(400, { "Content-Type": "text/html" });
-        res.end(page(
-          "&#x2717;",
-          "Authorization Failed",
-          escapeHtml(error),
-          "#f7768e",
-        ));
+        res.end(errorHtml(escapeHtml(error)));
         server.close();
         reject(new Error(`Authorization error: ${error}`));
         return;
@@ -162,12 +190,7 @@ h1{color:${accent};font-size:20px;font-weight:600;margin-bottom:12px;font-family
 
       if (code) {
         res.writeHead(200, { "Content-Type": "text/html" });
-        res.end(page(
-          "&#x2713;",
-          "Authorized!",
-          "Your Google account has been connected successfully.",
-          "#9ece6a",
-        ));
+        res.end(successHtml);
         server.close();
         resolve(code);
       }
