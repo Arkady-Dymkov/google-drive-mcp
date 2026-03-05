@@ -2,35 +2,34 @@
 
 Connect AI assistants (Claude Desktop, Air.dev, etc.) to Google Drive, Docs, Sheets, Calendar, and Gmail via the Model Context Protocol. 67 tools. Supports multiple Google accounts.
 
-## Quick Setup
+## Quick Setup (for customers)
 
-### 1. Get Google OAuth Credentials
+If your admin gave you a Client ID and Secret, setup is two steps:
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project
-3. Enable these APIs: Google Drive API, Google Docs API, Google Sheets API, Google Calendar API, Gmail API
-4. Go to "APIs & Services" > "Credentials"
-5. Configure OAuth consent screen (User type: "External", add your email as test user)
-6. Create OAuth client ID (Type: "Desktop app") and download the JSON file
-
-### 2. Run Setup
+### 1. Authorize your Google account
 
 ```bash
+GOOGLE_CLIENT_ID="<client-id-from-admin>" \
+GOOGLE_CLIENT_SECRET="<client-secret-from-admin>" \
 npx adw-google-mcp --setup
 ```
 
-Answer "y" when asked about JSON file, drag & drop it, authorize in browser. Done.
+Your browser opens. Click "Allow". Done.
 
-### 3. Configure Your AI Client
+### 2. Add to your AI client
 
-Add to your MCP configuration:
+Add the config your admin gave you (or the one printed after setup) to your MCP client:
 
 ```json
 {
   "mcpServers": {
-    "google-drive": {
+    "google-workspace": {
       "command": "npx",
-      "args": ["-y", "adw-google-mcp"]
+      "args": ["-y", "adw-google-mcp"],
+      "env": {
+        "GOOGLE_CLIENT_ID": "<client-id-from-admin>",
+        "GOOGLE_CLIENT_SECRET": "<client-secret-from-admin>"
+      }
     }
   }
 }
@@ -40,12 +39,65 @@ Add to your MCP configuration:
 - **Air.dev:** Settings > MCP Servers
 - **Claude Desktop:** `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 
-### 4. Restart & Test
+Restart your AI client and you're ready.
 
-Restart your AI client and ask:
-- "List my Google Drive files"
-- "Read the document called [name]"
-- "Search for files with [keyword]"
+---
+
+## Admin Setup (one-time, for the person distributing to customers)
+
+You create ONE Google Cloud project. Your customers use your credentials — they don't need their own project.
+
+### 1. Create Google Cloud project
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project
+3. Enable these APIs: **Drive, Docs, Sheets, Calendar, Gmail**
+4. Go to "APIs & Services" > "OAuth consent screen"
+   - User type: **External**
+   - Fill in app name and email
+   - Add scopes: `drive`, `documents`, `spreadsheets`, `calendar`, `gmail.modify`, `gmail.send`
+   - Add your test users (up to 100 users in testing mode)
+   - **Publish the app** (click "Publish App" — unverified is fine, users click through a warning once)
+5. Go to "Credentials" > Create **OAuth client ID** (Desktop app type)
+6. Copy the **Client ID** and **Client Secret**
+
+### 2. Distribute to your customers
+
+Give each customer this config snippet (with your credentials filled in):
+
+```json
+{
+  "mcpServers": {
+    "google-workspace": {
+      "command": "npx",
+      "args": ["-y", "adw-google-mcp"],
+      "env": {
+        "GOOGLE_CLIENT_ID": "YOUR_CLIENT_ID.apps.googleusercontent.com",
+        "GOOGLE_CLIENT_SECRET": "GOCSPX-YOUR_SECRET"
+      }
+    }
+  }
+}
+```
+
+Then tell them to run:
+```bash
+GOOGLE_CLIENT_ID="..." GOOGLE_CLIENT_SECRET="..." npx adw-google-mcp --setup
+```
+
+They authorize in their browser and they're connected. No Google Cloud project needed on their end.
+
+---
+
+## Self-hosted Setup (DIY)
+
+If you prefer to use your own Google Cloud project instead of someone else's credentials:
+
+```bash
+npx adw-google-mcp --setup
+```
+
+The wizard will prompt for your OAuth JSON file or Client ID/Secret manually.
 
 ---
 

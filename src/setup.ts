@@ -29,22 +29,16 @@ function question(
 
 function printBanner(profileName: string, configPath: string): void {
   console.clear();
-  console.log(
-    "================================================",
-  );
-  console.log("  Google Drive MCP Server - Setup Wizard");
-  console.log(
-    "================================================\n",
-  );
+  console.log("================================================");
+  console.log("  Google Workspace MCP Server - Setup Wizard");
+  console.log("================================================\n");
   if (profileName !== "default") {
     console.log(`Profile: ${profileName}`);
     console.log(`Config will be saved to: ${configPath}\n`);
   }
 }
 
-function waitForOAuthCallback(
-  port: number,
-): Promise<string> {
+function waitForOAuthCallback(port: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       const requestUrl = new URL(req.url!, `http://localhost:${port}`);
@@ -101,7 +95,9 @@ function waitForOAuthCallback(
 
     setTimeout(() => {
       server.close();
-      reject(new Error("Authorization timeout (5 minutes). Please try again."));
+      reject(
+        new Error("Authorization timeout (5 minutes). Please try again."),
+      );
     }, OAUTH_TIMEOUT_MS);
   });
 }
@@ -112,23 +108,99 @@ function extractCredentialsFromJson(
   try {
     const data = fs.readFileSync(jsonPath, "utf-8");
     const credentials = JSON.parse(data);
-
     const source = credentials.installed || credentials.web;
     if (!source) return null;
-
-    return {
-      clientId: source.client_id,
-      clientSecret: source.client_secret,
-    };
+    return { clientId: source.client_id, clientSecret: source.client_secret };
   } catch {
     return null;
   }
 }
 
+// ── Credential resolution ─────────────────────────────────
+// Priority: 1) env vars  2) existing config  3) JSON file  4) manual input
+
+async function resolveCredentials(
+  rl: readline.Interface,
+  configPath: string,
+): Promise<{ clientId: string; clientSecret: string }> {
+  // 1) Environment variables (for distributed setups — customers don't need their own project)
+  const envClientId = process.env.GOOGLE_CLIENT_ID;
+  const envClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  if (envClientId && envClientSecret) {
+    console.log("Using credentials from GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET env vars.");
+    console.log(`  Client ID: ${envClientId.substring(0, 20)}...\n`);
+    return { clientId: envClientId, clientSecret: envClientSecret };
+  }
+
+  // 2) Existing config (re-authorization with same credentials)
+  try {
+    if (fs.existsSync(configPath)) {
+      const existing = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      if (existing.clientId && existing.clientSecret) {
+        const reuse = await question(
+          rl,
+          `Existing credentials found. Re-authorize with same credentials? (y/n): `,
+        );
+        if (reuse.toLowerCase() === "y") {
+          console.log(`  Client ID: ${existing.clientId.substring(0, 20)}...\n`);
+          return {
+            clientId: existing.clientId,
+            clientSecret: existing.clientSecret,
+          };
+        }
+      }
+    }
+  } catch {
+    // ignore parse errors
+  }
+
+  // 3) JSON file or manual input
+  console.log("You need Google OAuth 2.0 credentials.");
+  console.log("Options:");
+  console.log("  a) Provide a downloaded OAuth JSON file");
+  console.log("  b) Enter Client ID and Secret manually");
+  console.log(
+    "  c) Ask your admin for GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET env vars\n",
+  );
+
+  const hasJson = await question(
+    rl,
+    "Do you have a Google OAuth JSON file? (y/n): ",
+  );
+
+  if (hasJson.toLowerCase() === "y") {
+    const jsonPath = await question(
+      rl,
+      "Enter the path to your JSON file (or drag & drop): ",
+    );
+    const cleanPath = jsonPath.trim().replace(/^['"]|['"]$/g, "");
+    const creds = extractCredentialsFromJson(cleanPath);
+
+    if (creds) {
+      console.log("\nSuccessfully extracted credentials from JSON file");
+      console.log(`  Client ID: ${creds.clientId.substring(0, 20)}...`);
+      return creds;
+    }
+    console.log(
+      "\nCould not parse JSON file. Please enter credentials manually.\n",
+    );
+  }
+
+  const clientId = await question(rl, "Client ID: ");
+  const clientSecret = await question(rl, "Client Secret: ");
+  return { clientId: clientId.trim(), clientSecret: clientSecret.trim() };
+}
+
+// ── Main setup flow ───────────────────────────────────────
+
 export async function runSetup(): Promise<void> {
   const configPath = getConfigPath();
   const configDir = getConfigDir();
   const profileName = process.env.GOOGLE_DRIVE_PROFILE || "default";
+
+  // Check if credentials come from env vars (non-interactive mode)
+  const hasEnvCreds =
+    process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET;
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -138,48 +210,15 @@ export async function runSetup(): Promise<void> {
   try {
     printBanner(profileName, configPath);
 
-    console.log("This wizard will help you set up Google Drive access.\n");
-    console.log("Prerequisites:");
-    console.log("  1. Google Cloud project created");
-    console.log("  2. Drive, Docs, Sheets, Calendar, and Gmail APIs enabled");
-    console.log(
-      "  3. OAuth 2.0 credentials (Desktop app) created and downloaded\n",
-    );
-
-    const hasJson = await question(
-      rl,
-      "Do you have a Google OAuth JSON file? (y/n): ",
-    );
-
-    let clientId: string;
-    let clientSecret: string;
-    const redirectUri = `http://localhost:${OAUTH_PORT}`;
-
-    if (hasJson.toLowerCase() === "y") {
-      const jsonPath = await question(
-        rl,
-        "Enter the path to your JSON file (or drag & drop): ",
-      );
-      const cleanPath = jsonPath.trim().replace(/^['"]|['"]$/g, "");
-      const creds = extractCredentialsFromJson(cleanPath);
-
-      if (creds) {
-        clientId = creds.clientId;
-        clientSecret = creds.clientSecret;
-        console.log("\nSuccessfully extracted credentials from JSON file");
-        console.log(`  Client ID: ${clientId.substring(0, 20)}...`);
-      } else {
-        console.log(
-          "\nCould not parse JSON file. Please enter credentials manually.\n",
-        );
-        clientId = await question(rl, "Client ID: ");
-        clientSecret = await question(rl, "Client Secret: ");
-      }
-    } else {
-      console.log("\nPlease enter your OAuth 2.0 credentials:");
-      clientId = await question(rl, "Client ID: ");
-      clientSecret = await question(rl, "Client Secret: ");
+    if (!hasEnvCreds) {
+      console.log("This wizard will help you connect to Google Workspace.\n");
     }
+
+    const { clientId, clientSecret } = await resolveCredentials(
+      rl,
+      configPath,
+    );
+    const redirectUri = `http://localhost:${OAUTH_PORT}`;
 
     const oauth2Client = new google.auth.OAuth2(
       clientId,
@@ -194,7 +233,7 @@ export async function runSetup(): Promise<void> {
     });
 
     console.log("\n================================================");
-    console.log("  STEP 2: Authorize Access");
+    console.log("  Authorize Access");
     console.log("================================================\n");
     console.log("Opening your browser for authorization...");
     console.log("If it doesn't open automatically, visit this URL:\n");
@@ -244,19 +283,27 @@ export async function runSetup(): Promise<void> {
     console.log(`Configuration saved to: ${configPath}\n`);
     console.log("Next steps - Add to your MCP client configuration:\n");
 
+    // Build the MCP config example
+    const mcpEnv: Record<string, string> = {};
+    if (hasEnvCreds) {
+      mcpEnv.GOOGLE_CLIENT_ID = clientId;
+      mcpEnv.GOOGLE_CLIENT_SECRET = clientSecret;
+    }
+
     if (profileName !== "default") {
+      mcpEnv.GOOGLE_DRIVE_PROFILE = profileName;
+      mcpEnv.GOOGLE_DRIVE_SERVER_NAME = `google-workspace-${profileName}`;
       console.log(`For profile "${profileName}":\n`);
       console.log(
         JSON.stringify(
           {
             mcpServers: {
-              [`google-drive-${profileName}`]: {
+              [`google-workspace-${profileName}`]: {
                 command: "npx",
                 args: ["-y", "adw-google-mcp"],
-                env: {
-                  GOOGLE_DRIVE_PROFILE: profileName,
-                  GOOGLE_DRIVE_SERVER_NAME: `google-drive-${profileName}`,
-                },
+                ...(Object.keys(mcpEnv).length > 0
+                  ? { env: mcpEnv }
+                  : {}),
               },
             },
           },
@@ -272,9 +319,12 @@ export async function runSetup(): Promise<void> {
         JSON.stringify(
           {
             mcpServers: {
-              "google-drive": {
+              "google-workspace": {
                 command: "npx",
                 args: ["-y", "adw-google-mcp"],
+                ...(Object.keys(mcpEnv).length > 0
+                  ? { env: mcpEnv }
+                  : {}),
               },
             },
           },
@@ -292,11 +342,10 @@ export async function runSetup(): Promise<void> {
     }
 
     console.log(
-      "Then restart your AI client to start using Google Drive tools!\n",
+      "Then restart your AI client to start using Google Workspace tools!\n",
     );
   } catch (error: unknown) {
-    const message =
-      error instanceof Error ? error.message : String(error);
+    const message = error instanceof Error ? error.message : String(error);
     console.error("\nError during setup:", message);
     console.error("Please try again.\n");
     process.exit(1);
