@@ -2,9 +2,9 @@
 
 ## Project Overview
 
-Google Workspace MCP Server - A Model Context Protocol server that connects AI assistants (Claude Desktop, Air.dev, etc.) to Google Drive, Docs, Sheets, Calendar, and Gmail. Supports multiple Google accounts via profiles.
+Google Workspace MCP Server (`adw-google-mcp`) — connects AI assistants to Google Drive, Docs, Sheets, Calendar, and Gmail via the Model Context Protocol. 85 tools. Supports multiple Google accounts via profiles.
 
-Distributed via npm: users run `npx adw-google-mcp` (no cloning needed).
+Distributed via npm: `npx adw-google-mcp --setup` to configure, `npx -y adw-google-mcp` to run.
 
 ## Build Commands
 
@@ -12,11 +12,7 @@ Distributed via npm: users run `npx adw-google-mcp` (no cloning needed).
 npm install        # Install dependencies
 npm run build      # Compile TypeScript to build/
 npm run watch      # Watch mode compilation
-npm run setup      # Interactive OAuth setup wizard (default profile)
-
-# Multi-account setup
-GOOGLE_DRIVE_PROFILE=work npm run setup
-GOOGLE_DRIVE_PROFILE=personal npm run setup
+npm run setup      # Interactive account setup wizard
 ```
 
 ## Architecture
@@ -25,45 +21,35 @@ GOOGLE_DRIVE_PROFILE=personal npm run setup
 
 | File | Purpose |
 |------|---------|
-| `index.ts` | CLI entry point, routes `--setup` flag |
-| `server.ts` | MCP server orchestration, collects tools from all services |
-| `auth.ts` | OAuth config loading/saving, auth client creation |
-| `setup.ts` | Interactive OAuth setup wizard |
-| `types.ts` | Shared interfaces (`Service`, `ToolDefinition`, `AppConfig`) |
-| `utils.ts` | Validation helpers, error formatting, response builders |
-| `markdown.ts` | Markdown <-> HTML and Markdown <-> Google Docs JSON converters (zero deps) |
-| `services/drive.ts` | Drive file operations (7 tools: list, search, read, upload, move, etc.) |
-| `services/docs.ts` | Google Docs operations (15 tools: read/write markdown, format, tables, images, etc.) |
-| `services/sheets.ts` | Google Sheets operations (18 tools: read/write, format, charts, sort, etc.) |
-| `services/calendar.ts` | Google Calendar operations (12 tools: events CRUD, scheduling, recurrence, etc.) |
-| `services/gmail.ts` | Gmail operations (15 tools: send, search, reply, drafts, labels, threads, batch) |
+| `index.ts` | CLI entry point (--setup / --help / server with TTY detection) |
+| `server.ts` | MCP server, collects tools from all services via Service interface |
+| `auth.ts` | Config path resolution, OAuth client creation |
+| `setup.ts` | Interactive setup wizard with @clack/prompts (account CRUD) |
+| `markdown.ts` | Markdown <-> HTML and Markdown <-> Google Docs JSON (zero deps) |
+| `types.ts` | Shared interfaces: Service, ToolDefinition, AppConfig |
+| `utils.ts` | Input validation, error formatting, response builders |
+| `services/drive.ts` | Google Drive (11 tools) |
+| `services/docs.ts` | Google Docs (15 tools) |
+| `services/sheets.ts` | Google Sheets (21 tools) |
+| `services/calendar.ts` | Google Calendar (14 tools) |
+| `services/gmail.ts` | Gmail (24 tools) |
 
-**Adding a new service** (e.g., Gmail):
-1. Create `src/services/gmail.ts` implementing the `Service` interface
+**Adding a new service:**
+1. Create `src/services/foo.ts` implementing the `Service` interface
 2. Register it in `server.ts` constructor's `this.services` array
+3. Add OAuth scope to `OAUTH_SCOPES` in `setup.ts`
 
-**Multi-account support via environment variables:**
-- `GOOGLE_DRIVE_PROFILE` - Profile name (e.g., `work` -> `~/.config/google-drive-mcp/work.json`)
-- `GOOGLE_DRIVE_CONFIG` - Full custom config path (overrides profile)
-- `GOOGLE_DRIVE_SERVER_NAME` - Custom server name for AI to distinguish accounts
+**Multi-account:** `GOOGLE_DRIVE_PROFILE` env var selects `~/.config/google-drive-mcp/{name}.json`
 
-**Key dependencies**:
-- `googleapis` - Google Drive, Docs, Sheets, Calendar, Gmail APIs
-- `google-auth-library` - OAuth2 authentication
-- `cheerio` + `turndown` - HTML parsing and Markdown conversion for restricted documents
-- `@modelcontextprotocol/sdk` - MCP protocol implementation
+**Key dependencies:** googleapis, google-auth-library, @modelcontextprotocol/sdk, cheerio + turndown (restricted docs), @clack/prompts (setup UI)
 
-## Tool Count
+## Publishing
 
-- **Drive**: 7 tools (list, search, read, metadata, create folder, upload, move)
-- **Docs**: 15 tools (read plain/markdown/restricted, create plain/markdown, insert text/image/page break/table, delete range, replace, format, paragraph style, batch update)
-- **Sheets**: 18 tools (read, write, append, clear, create, add/delete sheet, insert/delete rows/cols, format, merge, column width, freeze, sort, find/replace, charts, batch update)
-- **Calendar**: 12 tools (list calendars, list/get/search/create/update/delete events, quick add, free/busy, respond, recurring instances, move)
-- **Gmail**: 15 tools (search, read, send, reply, draft, send draft, modify, trash, list/get threads, list/create/delete labels, batch modify, batch trash)
-- **Total**: 67 tools
+Tag-triggered via GitHub Actions. See PUBLISHING.md for details.
+```bash
+git tag v1.0.0 && git push origin v1.0.0  # CI builds + injects OAuth defaults + publishes
+```
 
-## TypeScript Configuration
+## TypeScript
 
-- Target: ES2022, Module: Node16
-- Strict mode enabled
-- Source files: `src/`, Output: `build/`
+Target: ES2022, Module: Node16, Strict mode. Source: `src/`, Output: `build/`

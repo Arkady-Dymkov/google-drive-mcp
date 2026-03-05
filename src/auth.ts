@@ -17,7 +17,9 @@ export function getConfigPath(): string {
       : customConfigPath;
   }
   if (profileName) {
-    return path.join(CONFIG_DIR, `${profileName}.json`);
+    // Sanitize to prevent path traversal
+    const safeName = profileName.replace(/[^a-z0-9_-]/gi, "-");
+    return path.join(CONFIG_DIR, `${safeName}.json`);
   }
   return path.join(CONFIG_DIR, "config.json");
 }
