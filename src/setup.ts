@@ -555,5 +555,7 @@ export async function runSetup(): Promise<void> {
     finalCount > 0
       ? `${finalCount} account(s) ready. Restart your AI client to use them.`
       : "No accounts configured. Run --setup again to add one.";
+  console.log();
   clack.outro(msg);
+  process.exit(0);
 }
