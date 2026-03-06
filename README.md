@@ -357,6 +357,6 @@ Adding a service: implement `Service` interface → register in `server.ts` → 
 
 <div align="center">
 
-MIT License
+AGPL-3.0 License
 
 </div>
