@@ -359,4 +359,6 @@ Adding a service: implement `Service` interface → register in `server.ts` → 
 
 AGPL-3.0 License
 
+[Privacy Policy](https://ardw.net/projects/adw-google-mcp/privacy-policy) · [Terms of Service](https://ardw.net/projects/adw-google-mcp/terms-of-use)
+
 </div>
