@@ -621,11 +621,6 @@ export class GmailService implements Service {
                 type: "string",
                 description: "Email address to forward matching emails to",
               },
-              applyToExisting: {
-                type: "boolean",
-                description:
-                  "Also apply the filter actions to existing messages that match the criteria (default: false). Equivalent to Gmail's 'Also apply filter to matching conversations' checkbox.",
-              },
             },
           },
         },
@@ -1161,7 +1156,6 @@ export class GmailService implements Service {
     const addLabelIds = args.addLabelIds as string[] | undefined;
     const removeLabelIds = args.removeLabelIds as string[] | undefined;
     const forward = optionalString(args, "forward");
-    const applyToExisting = optionalBoolean(args, "applyToExisting") || false;
 
     const criteria: gmail_v1.Schema$FilterCriteria = {};
     if (from) criteria.from = from;
@@ -1193,43 +1187,9 @@ export class GmailService implements Service {
     if (removeLabelIds?.length) actionDesc.push(`remove labels: ${removeLabelIds.join(", ")}`);
     if (forward) actionDesc.push(`forward to: ${forward}`);
 
-    let result = `Filter created!\nID: ${f.id}\nCriteria: ${criteriaDesc.join(", ")}\nActions: ${actionDesc.join(", ")}`;
-
-    // Apply to existing matching messages
-    if (applyToExisting && (addLabelIds?.length || removeLabelIds?.length)) {
-      const searchQuery = criteriaDesc.join(" ");
-      if (searchQuery) {
-        const existing = await this.gmail.users.messages.list({
-          userId: "me",
-          q: searchQuery,
-          maxResults: 500,
-        });
-
-        const messageIds = (existing.data.messages || [])
-          .map((m) => m.id!)
-          .filter(Boolean);
-
-        if (messageIds.length > 0) {
-          // Process in batches of 100
-          for (let i = 0; i < messageIds.length; i += 100) {
-            const batch = messageIds.slice(i, i + 100);
-            await this.gmail.users.messages.batchModify({
-              userId: "me",
-              requestBody: {
-                ids: batch,
-                addLabelIds: addLabelIds || [],
-                removeLabelIds: removeLabelIds || [],
-              },
-            });
-          }
-          result += `\nApplied to ${messageIds.length} existing message(s).`;
-        } else {
-          result += `\nNo existing messages matched the criteria.`;
-        }
-      }
-    }
-
-    return textResponse(result);
+    return textResponse(
+      `Filter created!\nID: ${f.id}\nCriteria: ${criteriaDesc.join(", ")}\nActions: ${actionDesc.join(", ")}`,
+    );
   }
 
   private async listFilters(_args: Record<string, unknown>) {
