@@ -307,6 +307,107 @@ export class DriveService implements Service {
         },
         handler: (args) => this.shareFile(args),
       },
+      // ── Comments ────────────────────────────────────────
+      {
+        tool: {
+          name: "list_comments",
+          description:
+            "List all comments on a Google Drive file (Docs, Sheets, Slides, etc.).",
+          inputSchema: {
+            type: "object",
+            properties: {
+              fileId: {
+                type: "string",
+                description: "The ID of the file",
+              },
+              includeDeleted: {
+                type: "boolean",
+                description: "Include deleted comments (default: false)",
+              },
+            },
+            required: ["fileId"],
+          },
+        },
+        handler: (args) => this.listComments(args),
+      },
+      {
+        tool: {
+          name: "add_comment",
+          description:
+            "Add a comment to a Google Drive file. Optionally anchor it to specific text content.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              fileId: {
+                type: "string",
+                description: "The ID of the file",
+              },
+              content: {
+                type: "string",
+                description: "The comment text",
+              },
+              quotedContent: {
+                type: "string",
+                description:
+                  "Optional: the exact text in the document to anchor the comment to",
+              },
+            },
+            required: ["fileId", "content"],
+          },
+        },
+        handler: (args) => this.addComment(args),
+      },
+      {
+        tool: {
+          name: "reply_to_comment",
+          description: "Reply to an existing comment on a file.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              fileId: {
+                type: "string",
+                description: "The ID of the file",
+              },
+              commentId: {
+                type: "string",
+                description: "The ID of the comment to reply to",
+              },
+              content: {
+                type: "string",
+                description: "The reply text",
+              },
+            },
+            required: ["fileId", "commentId", "content"],
+          },
+        },
+        handler: (args) => this.replyToComment(args),
+      },
+      {
+        tool: {
+          name: "resolve_comment",
+          description:
+            "Resolve or reopen a comment on a file.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              fileId: {
+                type: "string",
+                description: "The ID of the file",
+              },
+              commentId: {
+                type: "string",
+                description: "The ID of the comment",
+              },
+              resolved: {
+                type: "boolean",
+                description: "true to resolve, false to reopen",
+              },
+            },
+            required: ["fileId", "commentId", "resolved"],
+          },
+        },
+        handler: (args) => this.resolveComment(args),
+      },
     ];
   }
 
@@ -574,5 +675,108 @@ export class DriveService implements Service {
         : `${emailAddress} (${type})`;
 
     return textResponse(`Shared with ${target} as ${role}.`);
+  }
+
+  // ── Comments ────────────────────────────────────────────
+
+  private async listComments(args: Record<string, unknown>) {
+    const fileId = requireString(args, "fileId");
+    const includeDeleted = args.includeDeleted === true;
+
+    const response = await this.drive.comments.list({
+      fileId,
+      fields: "comments(id,content,author(displayName,emailAddress),createdTime,modifiedTime,resolved,quotedFileContent,replies(id,content,author(displayName),createdTime))",
+      includeDeleted,
+      pageSize: 100,
+    });
+
+    const comments = response.data.comments || [];
+    if (comments.length === 0) {
+      return textResponse("No comments on this file.");
+    }
+
+    const lines = comments.map((c) => {
+      const parts = [
+        `- [${c.resolved ? "RESOLVED" : "OPEN"}] ${c.author?.displayName || "Unknown"} (${c.createdTime})`,
+        `  ID: ${c.id}`,
+        `  ${c.content}`,
+      ];
+      if (c.quotedFileContent?.value) {
+        parts.push(`  Quoted: "${c.quotedFileContent.value}"`);
+      }
+      if (c.replies?.length) {
+        for (const r of c.replies) {
+          parts.push(`    ↳ ${r.author?.displayName}: ${r.content}`);
+        }
+      }
+      return parts.join("\n");
+    });
+
+    return textResponse(
+      `${comments.length} comment(s):\n\n${lines.join("\n\n")}`,
+    );
+  }
+
+  private async addComment(args: Record<string, unknown>) {
+    const fileId = requireString(args, "fileId");
+    const content = requireString(args, "content");
+    const quotedContent = optionalString(args, "quotedContent");
+
+    const requestBody: drive_v3.Schema$Comment = { content };
+    if (quotedContent) {
+      requestBody.quotedFileContent = {
+        value: quotedContent,
+        mimeType: "text/plain",
+      };
+    }
+
+    const response = await this.drive.comments.create({
+      fileId,
+      requestBody,
+      fields: "id,content,author(displayName),createdTime,quotedFileContent",
+    });
+
+    const c = response.data;
+    let result = `Comment added!\nID: ${c.id}\nBy: ${c.author?.displayName}\n"${c.content}"`;
+    if (c.quotedFileContent?.value) {
+      result += `\nAnchored to: "${c.quotedFileContent.value}"`;
+    }
+    return textResponse(result);
+  }
+
+  private async replyToComment(args: Record<string, unknown>) {
+    const fileId = requireString(args, "fileId");
+    const commentId = requireString(args, "commentId");
+    const content = requireString(args, "content");
+
+    const response = await this.drive.replies.create({
+      fileId,
+      commentId,
+      requestBody: { content },
+      fields: "id,content,author(displayName),createdTime",
+    });
+
+    return textResponse(
+      `Reply added!\nID: ${response.data.id}\nBy: ${response.data.author?.displayName}\n"${response.data.content}"`,
+    );
+  }
+
+  private async resolveComment(args: Record<string, unknown>) {
+    const fileId = requireString(args, "fileId");
+    const commentId = requireString(args, "commentId");
+    const resolved = args.resolved === true;
+
+    // To resolve/reopen, we update via a reply with action
+    // The Drive API resolves comments by setting resolved on the comment
+    await this.drive.comments.update({
+      fileId,
+      commentId,
+      requestBody: { resolved },
+      fields: "id,resolved",
+    });
+
+    return textResponse(
+      `Comment ${commentId} ${resolved ? "resolved" : "reopened"}.`,
+    );
   }
 }
