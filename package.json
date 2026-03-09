@@ -1,6 +1,6 @@
 {
   "name": "adw-google-mcp",
-  "version": "2.0.0",
+  "version": "0.0.14",
   "description": "Google Workspace MCP server — 85 tools for Drive, Docs, Sheets, Calendar, and Gmail. Connects AI assistants via the Model Context Protocol.",
   "type": "module",
   "main": "build/index.js",

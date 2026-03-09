@@ -58,7 +58,7 @@ export function createAuthClient(config: AppConfig): OAuth2Client {
   const auth = new google.auth.OAuth2(
     config.clientId,
     config.clientSecret,
-    config.redirectUri || "urn:ietf:wg:oauth:2.0:oob",
+    config.redirectUri || "http://localhost:3000",
   );
 
   if (!config.refreshToken) {
