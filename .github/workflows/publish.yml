@@ -32,7 +32,12 @@ jobs:
             VERSION="${GITHUB_REF_NAME#v}"
           fi
           echo "Publishing version: $VERSION"
-          npm version "$VERSION" --no-git-tag-version
+          CURRENT=$(node -p "require('./package.json').version")
+          if [ "$CURRENT" != "$VERSION" ]; then
+            npm version "$VERSION" --no-git-tag-version
+          else
+            echo "package.json already at $VERSION, skipping npm version"
+          fi
 
       - run: npm ci
 
