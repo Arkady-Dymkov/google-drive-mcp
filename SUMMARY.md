@@ -63,8 +63,13 @@ comments remain supported.
   and returned body text is marked as untrusted. Chat data is likewise marked
   as external content, threaded replies fail closed, and structured responses
   are bounded.
-- CI builds and tests on supported Node versions. `npm run check` adds a
-  complete dependency audit, and prepack rejects embedded OAuth defaults.
+- CI builds and tests on supported Node versions. `npm run check` audits the
+  development tree and a clean consumer install of the packed tarball; prepack
+  also rejects embedded OAuth defaults.
+- The MCP server SDK code is bundled into the CLI, and `googleapis-common` is
+  pinned to the last compatible consumer-safe release because npm ignores an
+  installed package's root `overrides`. The consumer-package check rejects the
+  vulnerable transitive tree without shipping whole dependency directories.
 - Publishing is designed for npm trusted publishing with GitHub OIDC and
   provenance. The npm package's trusted-publisher setting is a one-time
   external prerequisite described in `PUBLISHING.md`.

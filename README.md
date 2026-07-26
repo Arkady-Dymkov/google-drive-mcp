@@ -265,6 +265,8 @@ issued to a profile. `GOOGLE_DRIVE_PROFILE`, `GOOGLE_DRIVE_CONFIG`, and
   fail closed at 4 MiB.
 - Releases use npm trusted publishing from GitHub Actions with OIDC and
   provenance—there is no long-lived npm publish token.
+- Release checks install the packed tarball in an isolated consumer project
+  and audit the dependency tree users actually receive.
 
 Revoke Google access at any time from
 [Google Account permissions](https://myaccount.google.com/permissions).
@@ -290,7 +292,7 @@ Revoke Google access at any time from
 npm ci
 npm run build       # clean TypeScript build
 npm test            # build and run automated tests
-npm run check       # tests plus dependency audit
+npm run check       # tests, audits, and packed consumer verification
 npm run tools       # generated service-by-service inventory
 npm pack --dry-run  # inspect the package before release
 ```

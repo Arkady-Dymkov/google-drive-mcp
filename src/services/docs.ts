@@ -1,8 +1,8 @@
 import { google, type docs_v1, type drive_v3 } from "googleapis";
 import type { OAuth2Client } from "google-auth-library";
-import * as cheerio from "cheerio";
 import TurndownService from "turndown";
 import type { Service, ToolDefinition } from "../types.js";
+import { extractReadableDocumentHtml } from "../html.js";
 import {
   requireString,
   requireNumber,
@@ -1572,31 +1572,12 @@ export class DocsService implements Service {
         "The mobilebasic endpoint returned an authentication page, not document content",
       );
     }
-    const $ = cheerio.load(html);
-
-    let title =
-      $("title").text().trim() ||
-      $("h1").first().text().trim() ||
-      "Untitled Document";
-    title = title.replace(/ - Google Docs$/i, "").trim();
-
-    let contentHtml = "";
-    const mainContent = $(
-      ".doc-content, .document-content, #contents, main",
-    );
-    if (mainContent.length > 0) {
-      contentHtml = mainContent.html() || "";
-    }
+    const extracted = extractReadableDocumentHtml(html);
+    const title = extracted.title;
+    let contentHtml = extracted.primaryContentHtml;
 
     if (!contentHtml || contentHtml.length < MIN_CONTENT_HTML_LENGTH) {
-      const contentElements: string[] = [];
-      $("h1, h2, h3, h4, h5, h6, p, ul, ol, table").each((_i, elem) => {
-        const elementHtml = $(elem).prop("outerHTML");
-        if (elementHtml && $(elem).text().trim().length > 0) {
-          contentElements.push(elementHtml);
-        }
-      });
-      contentHtml = contentElements.join("\n");
+      contentHtml = extracted.fallbackContentHtml;
     }
 
     const turndownService = new TurndownService({
@@ -1624,25 +1605,12 @@ export class DocsService implements Service {
       try {
         markdown = turndownService.turndown(contentHtml);
       } catch {
-        markdown = $("body").text().trim();
+        markdown = extracted.plainText;
       }
     }
 
     if (!markdown || markdown.trim().length < MIN_MARKDOWN_LENGTH) {
-      const paragraphs: string[] = [];
-      $("p, h1, h2, h3, h4, h5, h6").each((_i, elem) => {
-        const text = $(elem).text().trim();
-        if (text.length > 0) {
-          const tagName = (elem as unknown as { tagName?: string }).tagName?.toLowerCase();
-          if (tagName?.startsWith("h")) {
-            const level = parseInt(tagName.slice(1));
-            paragraphs.push(`${"#".repeat(level)} ${text}`);
-          } else {
-            paragraphs.push(text);
-          }
-        }
-      });
-      markdown = paragraphs.join("\n\n");
+      markdown = extracted.fallbackMarkdown;
     }
 
     markdown = markdown.replace(/\n{4,}/g, "\n\n\n").trim();

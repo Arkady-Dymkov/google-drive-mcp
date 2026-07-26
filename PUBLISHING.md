@@ -1,9 +1,10 @@
 # Publishing `adw-google-mcp`
 
 Releases are published from `.github/workflows/publish.yml` when a `v*` tag is
-pushed. The workflow builds and tests on Node 24, runs the complete dependency
-audit, and publishes through npm trusted publishing (OIDC). It does not embed
-Google OAuth credentials or use a long-lived npm write token.
+pushed. The workflow builds and tests on Node 24, audits both the development
+tree and a clean install of the packed consumer tarball, and publishes through
+npm trusted publishing (OIDC). It does not embed Google OAuth credentials or
+use a long-lived npm write token.
 
 ## One-time npm configuration
 

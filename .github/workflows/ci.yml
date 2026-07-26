@@ -25,3 +25,5 @@ jobs:
       - run: npm run test
       - if: matrix.node-version == 26
         run: npm audit
+      - if: matrix.node-version == 26
+        run: npm run test:consumer

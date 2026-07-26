@@ -17,7 +17,7 @@ hard-coded total into documentation.
 npm install
 npm run build
 npm run test
-npm run check       # tests plus complete dependency audit
+npm run check       # tests, audits, and packed consumer verification
 npm run tools       # grouped tool inventory
 npm run setup
 ```
@@ -33,11 +33,13 @@ Node 22 or newer is required. CI covers Node 22, 24, and 26.
 | `src/auth.ts` | Profile paths, secure config persistence, OAuth client creation |
 | `src/setup.ts` | OAuth PKCE setup and profile management |
 | `src/scopes.ts` | Service IDs and least-privilege OAuth scope mapping |
+| `src/html.ts` | Untrusted HTML sanitization and restricted-Docs extraction |
 | `src/markdown.ts` | Markdown, HTML, and Google Docs conversion |
 | `src/types.ts` | Shared service and tool contracts |
 | `src/utils.ts` | Validation and response builders |
 | `src/services/*.ts` | One module per Google Workspace service |
 | `src/tests/*.test.ts` | Contract and mocked regression tests |
+| `scripts/bundle.mjs` | Bundles only the MCP server SDK into the published CLI |
 
 Google Docs operations must remain tab-aware. Read with `includeTabsContent` and
 carry `tabId` through locations, ranges, end-of-segment locations, table

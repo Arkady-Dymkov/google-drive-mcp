@@ -1,10 +1,10 @@
 import { google, type gmail_v1 } from "googleapis";
 import type { OAuth2Client } from "google-auth-library";
-import * as cheerio from "cheerio";
 import TurndownService from "turndown";
 import MailComposer from "nodemailer/lib/mail-composer/index.js";
 import addressparser from "nodemailer/lib/addressparser/index.js";
 import type { Service, ToolDefinition } from "../types.js";
+import { sanitizeHtmlForMarkdown } from "../html.js";
 import {
   requireString,
   optionalString,
@@ -259,10 +259,8 @@ export function collectBodyCandidates(
 }
 
 function htmlToMarkdown(html: string): string {
-  const $ = cheerio.load(html);
-  $("script, style, head, meta, link, object, embed").remove();
   const turndown = new TurndownService({ codeBlockStyle: "fenced", headingStyle: "atx" });
-  return turndown.turndown($("body").html() || $.root().html() || html).trim();
+  return turndown.turndown(sanitizeHtmlForMarkdown(html)).trim();
 }
 
 function extractAttachments(
