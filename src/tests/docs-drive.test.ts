@@ -192,6 +192,84 @@ test("Docs formats matches spanning text runs in the selected tab", async () => 
   assert.equal(body.writeControl?.requiredRevisionId, "revision-1");
 });
 
+test("Docs code-block formatting is tab-aware, atomic, revision-guarded, and documented in its schema", async () => {
+  const service = new DocsService();
+  const definition = service
+    .getToolDefinitions()
+    .find(({ tool }) => tool.name === "format_code_block_in_document");
+  assert.ok(definition);
+  assert.match(definition.tool.description || "", /visual code-block approximation/i);
+  assert.match(definition.tool.description || "", /does not create/i);
+  const schema = definition.tool.inputSchema as {
+    additionalProperties?: boolean;
+    properties?: Record<string, Record<string, unknown>>;
+  };
+  assert.equal(schema.additionalProperties, false);
+  assert.equal(schema.properties?.fontFamily?.default, "Roboto Mono");
+  assert.equal(schema.properties?.fontWeight?.multipleOf, 100);
+  assert.equal(schema.properties?.foregroundColor?.pattern, "^#?[0-9A-Fa-f]{6}$");
+
+  const updates: Record<string, unknown>[] = [];
+  setPrivate(service, "docs", {
+    documents: {
+      get: async () => ({ data: tabbedDocument }),
+      batchUpdate: async (params: Record<string, unknown>) => {
+        updates.push(params);
+        return { data: {} };
+      },
+    },
+  });
+
+  await definition.handler({
+    documentId: "doc1",
+    tabId: "tab-root",
+    findText: "hello",
+    revisionId: "caller-revision",
+  });
+
+  assert.equal(updates.length, 1);
+  const body = updates[0].requestBody as {
+    requests: Array<Record<string, unknown>>;
+    writeControl?: { requiredRevisionId?: string };
+  };
+  assert.equal(body.writeControl?.requiredRevisionId, "caller-revision");
+  assert.equal(body.requests.length, 2);
+  assert.deepEqual(body.requests[0], {
+    updateTextStyle: {
+      range: { startIndex: 1, endIndex: 13, tabId: "tab-root" },
+      textStyle: {
+        weightedFontFamily: { fontFamily: "Roboto Mono", weight: 400 },
+        fontSize: { magnitude: 10, unit: "PT" },
+        foregroundColor: {
+          color: {
+            rgbColor: { red: 32 / 255, green: 33 / 255, blue: 36 / 255 },
+          },
+        },
+      },
+      fields: "weightedFontFamily,fontSize,foregroundColor",
+    },
+  });
+  assert.deepEqual(body.requests[1], {
+    updateParagraphStyle: {
+      range: { startIndex: 1, endIndex: 13, tabId: "tab-root" },
+      paragraphStyle: {
+        shading: {
+          backgroundColor: {
+            color: {
+              rgbColor: { red: 241 / 255, green: 243 / 255, blue: 244 / 255 },
+            },
+          },
+        },
+        indentStart: { magnitude: 12, unit: "PT" },
+        indentEnd: { magnitude: 12, unit: "PT" },
+        spaceAbove: { magnitude: 6, unit: "PT" },
+        spaceBelow: { magnitude: 6, unit: "PT" },
+      },
+      fields: "shading,indentStart,indentEnd,spaceAbove,spaceBelow",
+    },
+  });
+});
+
 test("Docs read exposes the requested suggestions preview and revision", async () => {
   const service = new DocsService();
   let getRequest: Record<string, unknown> | undefined;

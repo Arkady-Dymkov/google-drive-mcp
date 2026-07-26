@@ -25,6 +25,8 @@ The Docs service understands the Document tabs hierarchy shown in Google Docs:
 - create, rename, reorder, reparent, decorate, and explicitly delete tabs;
 - read one tab or the complete document as text or Markdown;
 - target text, formatting, image, page-break, and paragraph edits by `tabId`;
+- visually format existing paragraphs as code with monospace text, shading,
+  indentation, spacing, and a revision guard (not a native Docs code block);
 - discover and modify tables inside the correct tab, including cell content,
   rows, columns, merges, styles, and pinned header rows; and
 - apply optional revision guards to avoid stale writes.

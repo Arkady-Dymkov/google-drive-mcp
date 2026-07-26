@@ -30,6 +30,18 @@ interface LocatedTable {
   table: docs_v1.Schema$Table;
 }
 
+const CODE_BLOCK_STYLE_DEFAULTS = {
+  fontFamily: "Roboto Mono",
+  fontWeight: 400,
+  fontSize: 10,
+  foregroundColor: "#202124",
+  backgroundColor: "#F1F3F4",
+  indentStart: 12,
+  indentEnd: 12,
+  spaceAbove: 6,
+  spaceBelow: 6,
+} as const;
+
 export class DocsService implements Service {
   private docs!: docs_v1.Docs;
   private drive!: drive_v3.Drive;
@@ -351,6 +363,105 @@ export class DocsService implements Service {
       },
       {
         tool: {
+          name: "format_code_block_in_document",
+          description:
+            "Format every paragraph containing specified text as a visual code-block approximation using monospace text, paragraph shading, indentation, and spacing. Google Docs has no API request for its native code-block building block, so this tool does not create one.",
+          inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              documentId: {
+                type: "string",
+                minLength: 1,
+                description: "The ID of the Google Doc",
+              },
+              findText: {
+                type: "string",
+                minLength: 1,
+                description:
+                  "Text used to select paragraphs; every paragraph containing this exact text is formatted",
+              },
+              fontFamily: {
+                type: "string",
+                minLength: 1,
+                maxLength: 100,
+                default: CODE_BLOCK_STYLE_DEFAULTS.fontFamily,
+                description: "Google Fonts family (default: Roboto Mono)",
+              },
+              fontWeight: {
+                type: "integer",
+                minimum: 100,
+                maximum: 900,
+                multipleOf: 100,
+                default: CODE_BLOCK_STYLE_DEFAULTS.fontWeight,
+                description: "Font weight from 100 to 900 (default: 400)",
+              },
+              fontSize: {
+                type: "number",
+                exclusiveMinimum: 0,
+                maximum: 400,
+                default: CODE_BLOCK_STYLE_DEFAULTS.fontSize,
+                description: "Font size in points (default: 10)",
+              },
+              foregroundColor: {
+                type: "string",
+                pattern: "^#?[0-9A-Fa-f]{6}$",
+                default: CODE_BLOCK_STYLE_DEFAULTS.foregroundColor,
+                description: "Text color as six-digit hex (default: #202124)",
+              },
+              backgroundColor: {
+                type: "string",
+                pattern: "^#?[0-9A-Fa-f]{6}$",
+                default: CODE_BLOCK_STYLE_DEFAULTS.backgroundColor,
+                description: "Paragraph shading as six-digit hex (default: #F1F3F4)",
+              },
+              indentStart: {
+                type: "number",
+                minimum: 0,
+                maximum: 720,
+                default: CODE_BLOCK_STYLE_DEFAULTS.indentStart,
+                description: "Start indentation in points (default: 12)",
+              },
+              indentEnd: {
+                type: "number",
+                minimum: 0,
+                maximum: 720,
+                default: CODE_BLOCK_STYLE_DEFAULTS.indentEnd,
+                description: "End indentation in points (default: 12)",
+              },
+              spaceAbove: {
+                type: "number",
+                minimum: 0,
+                maximum: 720,
+                default: CODE_BLOCK_STYLE_DEFAULTS.spaceAbove,
+                description: "Space above each paragraph in points (default: 6)",
+              },
+              spaceBelow: {
+                type: "number",
+                minimum: 0,
+                maximum: 720,
+                default: CODE_BLOCK_STYLE_DEFAULTS.spaceBelow,
+                description: "Space below each paragraph in points (default: 6)",
+              },
+              tabId: {
+                type: "string",
+                minLength: 1,
+                description: "Optional target tab ID. Defaults to the first tab.",
+              },
+              revisionId: {
+                type: "string",
+                minLength: 1,
+                description:
+                  "Optional required document revision ID. Defaults to the revision read while locating paragraphs.",
+              },
+            },
+            required: ["documentId", "findText"],
+          },
+        },
+        handler: (args) => this.formatCodeBlock(args),
+      },
+      {
+        tool: {
           name: "insert_table_in_document",
           description:
             "Insert a table at a zero-based UTF-16 index or at the end of a selected Google Docs tab.",
@@ -657,7 +768,7 @@ export class DocsService implements Service {
         tool: {
           name: "create_document_from_markdown",
           description:
-            "Create a new Google Doc from Markdown content with full formatting: headings, bold, italic, links, lists, tables, code blocks, blockquotes, and images.",
+            "Create a new Google Doc from Markdown with headings, bold, italic, links, lists, tables, blockquotes, images, and preformatted fenced code. Fenced code is imported through HTML and does not become a native Google Docs code-block building block.",
           inputSchema: {
             type: "object",
             properties: {
@@ -1723,6 +1834,121 @@ export class DocsService implements Service {
 
     return textResponse(
       `Formatted ${ranges.length} occurrence(s) of "${findText}"\nDocument: https://docs.google.com/document/d/${documentId}/edit`,
+    );
+  }
+
+  private async formatCodeBlock(args: Record<string, unknown>) {
+    const documentId = requireString(args, "documentId");
+    const findText = requireString(args, "findText");
+    const requestedFontFamily = optionalString(args, "fontFamily");
+    const fontFamily = requestedFontFamily?.trim() || CODE_BLOCK_STYLE_DEFAULTS.fontFamily;
+    const fontWeight = optionalNumber(args, "fontWeight") ?? CODE_BLOCK_STYLE_DEFAULTS.fontWeight;
+    const fontSize = optionalNumber(args, "fontSize") ?? CODE_BLOCK_STYLE_DEFAULTS.fontSize;
+    const foregroundColor =
+      optionalString(args, "foregroundColor") ?? CODE_BLOCK_STYLE_DEFAULTS.foregroundColor;
+    const backgroundColor =
+      optionalString(args, "backgroundColor") ?? CODE_BLOCK_STYLE_DEFAULTS.backgroundColor;
+    const indentStart = optionalNumber(args, "indentStart") ?? CODE_BLOCK_STYLE_DEFAULTS.indentStart;
+    const indentEnd = optionalNumber(args, "indentEnd") ?? CODE_BLOCK_STYLE_DEFAULTS.indentEnd;
+    const spaceAbove = optionalNumber(args, "spaceAbove") ?? CODE_BLOCK_STYLE_DEFAULTS.spaceAbove;
+    const spaceBelow = optionalNumber(args, "spaceBelow") ?? CODE_BLOCK_STYLE_DEFAULTS.spaceBelow;
+    const tabId = optionalString(args, "tabId");
+    const revisionId = optionalString(args, "revisionId");
+
+    if (requestedFontFamily !== undefined && requestedFontFamily.trim() === "") {
+      throw new Error("'fontFamily' must be a non-empty string");
+    }
+    if (fontFamily.length > 100) {
+      throw new Error("'fontFamily' must be at most 100 characters");
+    }
+    if (
+      !Number.isInteger(fontWeight) ||
+      fontWeight < 100 ||
+      fontWeight > 900 ||
+      fontWeight % 100 !== 0
+    ) {
+      throw new Error("'fontWeight' must be a multiple of 100 from 100 to 900");
+    }
+    if (fontSize <= 0 || fontSize > 400) {
+      throw new Error("'fontSize' must be greater than 0 and at most 400 points");
+    }
+    for (const [field, value] of Object.entries({
+      indentStart,
+      indentEnd,
+      spaceAbove,
+      spaceBelow,
+    })) {
+      if (value < 0 || value > 720) {
+        throw new Error(`'${field}' must be between 0 and 720 points`);
+      }
+    }
+    if (tabId !== undefined && tabId.trim() === "") {
+      throw new Error("'tabId' must be a non-empty string");
+    }
+    if (revisionId !== undefined && revisionId.trim() === "") {
+      throw new Error("'revisionId' must be a non-empty string");
+    }
+
+    const textStyle: docs_v1.Schema$TextStyle = {
+      weightedFontFamily: { fontFamily, weight: fontWeight },
+      fontSize: { magnitude: fontSize, unit: "PT" },
+      foregroundColor: this.hexColor(foregroundColor),
+    };
+    const paragraphStyle: docs_v1.Schema$ParagraphStyle = {
+      shading: { backgroundColor: this.hexColor(backgroundColor) },
+      indentStart: { magnitude: indentStart, unit: "PT" },
+      indentEnd: { magnitude: indentEnd, unit: "PT" },
+      spaceAbove: { magnitude: spaceAbove, unit: "PT" },
+      spaceBelow: { magnitude: spaceBelow, unit: "PT" },
+    };
+
+    const doc = await this.getDocumentSnapshot(documentId);
+    const tab = this.selectDocumentTab(doc.data, tabId);
+    const paragraphRanges = this.findParagraphRanges(
+      tab.documentTab.body?.content || [],
+      findText,
+    );
+    if (paragraphRanges.length === 0) {
+      return textResponse(`Text "${findText}" not found in any paragraph.`);
+    }
+    const requiredRevisionId = revisionId || doc.data.revisionId || undefined;
+    if (!requiredRevisionId) {
+      throw new Error(
+        "A document revision ID is required to apply code-block formatting safely",
+      );
+    }
+
+    const requests: docs_v1.Schema$Request[] = [];
+    for (const range of paragraphRanges) {
+      const tabRange = this.tabRange(tab.tabId, range.startIndex, range.endIndex);
+      requests.push(
+        {
+          updateTextStyle: {
+            range: tabRange,
+            textStyle,
+            fields: "weightedFontFamily,fontSize,foregroundColor",
+          },
+        },
+        {
+          updateParagraphStyle: {
+            range: tabRange,
+            paragraphStyle,
+            fields: "shading,indentStart,indentEnd,spaceAbove,spaceBelow",
+          },
+        },
+      );
+    }
+
+    await this.docs.documents.batchUpdate({
+      documentId,
+      requestBody: {
+        requests,
+        writeControl: this.writeControl(requiredRevisionId),
+      },
+    });
+
+    return textResponse(
+      `Applied visual code-block formatting to ${paragraphRanges.length} paragraph(s). This is not a native Google Docs code-block building block.\nDocument: https://docs.google.com/document/d/${documentId}/edit`,
     );
   }
 

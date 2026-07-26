@@ -28,6 +28,27 @@ Developer Preview comment/suggestion mutation surface is intentionally not
 exposed as stable MCP tools yet; Drive comments remain available through the
 Drive tools.
 
+### Formatting existing code snippets
+
+`format_code_block_in_document` gives existing paragraphs the visual treatment
+of a code block: a weighted monospace font (Roboto Mono by default), text and
+background colors, indentation, and paragraph spacing. This is a visual
+approximation; the Google Docs API cannot create the editor's native code-block
+building block.
+
+An agent should first call `read_document` or `read_document_as_markdown` to get
+the correct `tabId`, current `revisionId`, and a distinctive `findText` value.
+It can then call `format_code_block_in_document` with those three values. Every
+paragraph in that tab containing the exact text is formatted in one atomic,
+revision-guarded update, so use a unique substring when only one block should
+change. Optional font, color, indentation, and spacing arguments override the
+defaults.
+
+Fenced code passed to `create_document_from_markdown` is imported through HTML
+as preformatted content; it likewise does not create a native Docs code-block
+building block. Use `format_code_block_in_document` when an agent needs
+predictable styling for content already in a document.
+
 ## Supported services
 
 | Service | Main capabilities |
