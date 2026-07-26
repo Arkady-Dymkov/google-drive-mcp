@@ -1,6 +1,7 @@
 import type { ToolResponse } from "./types.js";
 
 export const MAX_SPREADSHEET_ROWS = 100;
+export const MAX_BATCH_REQUESTS = 500;
 export const MIN_MARKDOWN_LENGTH = 50;
 export const MIN_CONTENT_HTML_LENGTH = 100;
 
@@ -33,8 +34,8 @@ export function optionalNumber(
 ): number | undefined {
   const value = args[field];
   if (value === undefined || value === null) return undefined;
-  if (typeof value !== "number") {
-    throw new Error(`'${field}' must be a number`);
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`'${field}' must be a finite number`);
   }
   return value;
 }
@@ -80,16 +81,45 @@ export function requireNumber(
   field: string,
 ): number {
   const value = args[field];
-  if (typeof value !== "number") {
-    throw new Error(`'${field}' is required and must be a number`);
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`'${field}' is required and must be a finite number`);
   }
   return value;
 }
 
 export function textResponse(text: string): ToolResponse {
-  return { content: [{ type: "text", text }] };
+  return {
+    content: [{ type: "text", text }],
+    structuredContent: { text },
+  };
+}
+
+export function jsonResponse(
+  data: Record<string, unknown>,
+  summary?: string,
+): ToolResponse {
+  const serialized = JSON.stringify(data, null, 2);
+  const maxBytes = 4 * 1024 * 1024;
+  if (Buffer.byteLength(serialized, "utf8") > maxBytes) {
+    throw new Error(
+      "Structured response exceeds 4 MiB; narrow the requested fields, page size, or resource scope",
+    );
+  }
+  return {
+    content: [
+      {
+        type: "text",
+        text: summary ?? serialized,
+      },
+    ],
+    structuredContent: data,
+  };
 }
 
 export function errorResponse(text: string): ToolResponse {
-  return { content: [{ type: "text", text }], isError: true };
+  return {
+    content: [{ type: "text", text }],
+    structuredContent: { text },
+    isError: true,
+  };
 }

@@ -3,24 +3,22 @@ import * as fs from "fs";
 import * as path from "path";
 import * as http from "http";
 import { execSync } from "child_process";
+import { randomBytes, timingSafeEqual } from "crypto";
 import { URL } from "url";
 import open from "open";
 import * as clack from "@clack/prompts";
-import { getConfigDir } from "./auth.js";
+import { CodeChallengeMethod } from "google-auth-library";
+import { getConfigDir, loadConfig, saveConfig } from "./auth.js";
 import { escapeHtml } from "./utils.js";
 import type { AppConfig } from "./types.js";
+import {
+  LEGACY_SERVICE_IDS,
+  SERVICE_LABELS,
+  WORKSPACE_SERVICE_IDS,
+  scopesForServices,
+  type WorkspaceServiceId,
+} from "./scopes.js";
 
-const OAUTH_SCOPES = [
-  "https://www.googleapis.com/auth/drive",
-  "https://www.googleapis.com/auth/documents",
-  "https://www.googleapis.com/auth/spreadsheets",
-  "https://www.googleapis.com/auth/calendar",
-  "https://www.googleapis.com/auth/gmail.modify",
-  "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/gmail.settings.basic",
-];
-
-const OAUTH_PORT = 3000;
 const OAUTH_TIMEOUT_MS = 5 * 60 * 1000;
 const PKG_NAME = "adw-google-mcp";
 
@@ -34,6 +32,16 @@ function bail(msg?: string): never {
 function cancelled(value: unknown): value is symbol {
   if (clack.isCancel(value)) bail();
   return false;
+}
+
+function oauthPort(): number {
+  const value = Number(process.env.GOOGLE_OAUTH_PORT ?? 3000);
+  if (!Number.isInteger(value) || value < 1024 || value > 65535) {
+    throw new Error(
+      "GOOGLE_OAUTH_PORT must be an integer between 1024 and 65535",
+    );
+  }
+  return value;
 }
 
 function copyToClipboard(text: string): boolean {
@@ -53,7 +61,8 @@ function copyToClipboard(text: string): boolean {
 
 function configDir(): string {
   const dir = getConfigDir();
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(dir, 0o700);
   return dir;
 }
 
@@ -73,32 +82,11 @@ function accountPath(name: string): string {
 }
 
 function loadAccount(name: string): AppConfig | null {
-  try {
-    const p = accountPath(name);
-    if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, "utf-8"));
-  } catch {}
-  return null;
+  return loadConfig(accountPath(name));
 }
 
 function saveAccount(name: string, config: AppConfig): void {
-  fs.writeFileSync(accountPath(name), JSON.stringify(config, null, 2));
-}
-
-// ── Built-in defaults ────────────────────────────────────────
-
-function loadBuiltInDefaults(): {
-  clientId: string;
-  clientSecret: string;
-} | null {
-  try {
-    const dir = new URL(".", import.meta.url).pathname;
-    const p = path.join(dir, "defaults.json");
-    if (fs.existsSync(p)) {
-      const data = JSON.parse(fs.readFileSync(p, "utf-8"));
-      if (data.clientId && data.clientSecret) return data;
-    }
-  } catch {}
-  return null;
+  saveConfig(accountPath(name), config);
 }
 
 function extractCredentialsFromJson(
@@ -106,9 +94,18 @@ function extractCredentialsFromJson(
 ): { clientId: string; clientSecret: string } | null {
   try {
     const data = fs.readFileSync(jsonPath, "utf-8");
-    const creds = JSON.parse(data);
-    const src = creds.installed || creds.web;
-    if (!src) return null;
+    const creds = JSON.parse(data) as {
+      installed?: { client_id?: unknown; client_secret?: unknown };
+    };
+    const src = creds.installed;
+    if (
+      typeof src?.client_id !== "string" ||
+      !src.client_id ||
+      typeof src.client_secret !== "string" ||
+      !src.client_secret
+    ) {
+      return null;
+    }
     return { clientId: src.client_id, clientSecret: src.client_secret };
   } catch {
     return null;
@@ -117,12 +114,46 @@ function extractCredentialsFromJson(
 
 // ── OAuth flow ───────────────────────────────────────────────
 
-function waitForOAuthCallback(port: number): Promise<string> {
-  return new Promise((resolve, reject) => {
+function statesMatch(actual: string | null, expected: string): boolean {
+  if (!actual) return false;
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(expected);
+  return (
+    actualBuffer.length === expectedBuffer.length &&
+    timingSafeEqual(actualBuffer, expectedBuffer)
+  );
+}
+
+function startOAuthCallbackServer(
+  port: number,
+  expectedState: string,
+): { ready: Promise<void>; code: Promise<string> } {
+  let resolveReady!: () => void;
+  let rejectReady!: (error: Error) => void;
+  const ready = new Promise<void>((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+  const code = new Promise<string>((resolve, reject) => {
+    let settled = false;
+    let timer: NodeJS.Timeout | undefined;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (server.listening) server.close();
+      callback();
+    };
     const server = http.createServer((req, res) => {
       const u = new URL(req.url!, `http://localhost:${port}`);
+      if (u.pathname !== "/" && u.pathname !== "/oauth2callback") {
+        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Not found");
+        return;
+      }
       const code = u.searchParams.get("code");
       const error = u.searchParams.get("error");
+      const state = u.searchParams.get("state");
 
       const successHtml = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -181,63 +212,91 @@ h1{font-size:32px;font-weight:600;color:#c0caf5}
   <p class="footer">adw-google-mcp</p>
 </div></body></html>`;
 
+      if (!statesMatch(state, expectedState)) {
+        res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(errorHtml("Invalid OAuth state. Please restart setup."));
+        finish(() => reject(new Error("OAuth state validation failed")));
+        return;
+      }
+
       if (error) {
         res.writeHead(400, { "Content-Type": "text/html" });
         res.end(errorHtml(escapeHtml(error)));
-        server.close();
-        reject(new Error(`Authorization error: ${error}`));
+        finish(() => reject(new Error(`Authorization error: ${error}`)));
         return;
       }
 
       if (code) {
         res.writeHead(200, { "Content-Type": "text/html" });
         res.end(successHtml);
-        server.close();
-        resolve(code);
+        finish(() => resolve(code));
+        return;
       }
+
+      res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Missing authorization code");
+    });
+
+    server.once("listening", resolveReady);
+
+    server.on("error", (err: NodeJS.ErrnoException) => {
+      const error =
+        err.code === "EADDRINUSE"
+          ? new Error(`Port ${port} is in use. Close other apps and retry.`)
+          : err;
+      rejectReady(error);
+      finish(() => reject(error));
     });
 
     server.listen(port, "127.0.0.1");
 
-    server.on("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "EADDRINUSE") {
-        reject(new Error(`Port ${port} is in use. Close other apps and retry.`));
-      } else {
-        reject(err);
-      }
-    });
-
-    setTimeout(() => {
-      server.close();
-      reject(new Error("Authorization timeout (5 min). Try again."));
+    timer = setTimeout(() => {
+      finish(() => reject(new Error("Authorization timeout (5 min). Try again.")));
     }, OAUTH_TIMEOUT_MS);
   });
+  // The readiness promise is awaited first. Attach a handler immediately so a
+  // listen error cannot become an unhandled rejection on the code promise.
+  void code.catch(() => undefined);
+  return { ready, code };
 }
 
 async function performOAuth(
   clientId: string,
   clientSecret: string,
-): Promise<string> {
-  const redirectUri = `http://localhost:${OAUTH_PORT}`;
+  services: readonly WorkspaceServiceId[],
+): Promise<{ refreshToken: string; redirectUri: string; scopes: string[] }> {
+  const port = oauthPort();
+  const redirectUri = `http://127.0.0.1:${port}`;
   const client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+  const state = randomBytes(32).toString("base64url");
+  const { codeVerifier, codeChallenge } =
+    await client.generateCodeVerifierAsync();
+  const scopes = scopesForServices(services);
 
   const authUrl = client.generateAuthUrl({
     access_type: "offline",
-    scope: OAUTH_SCOPES,
+    scope: scopes,
     prompt: "consent",
+    state,
+    code_challenge_method: CodeChallengeMethod.S256,
+    code_challenge: codeChallenge,
   });
 
   const s = clack.spinner();
+  const callback = startOAuthCallbackServer(port, state);
+  await callback.ready;
 
   try {
     await open(authUrl);
-  } catch {}
+  } catch {
+    clack.log.info(`Open this URL in your browser:\n${authUrl}`);
+  }
 
   s.start("Waiting for browser authorization...");
-  const code = await waitForOAuthCallback(OAUTH_PORT);
+  const code = await callback.code;
   s.message("Exchanging tokens...");
 
-  const { tokens } = await client.getToken(code);
+  const { tokens } = await client.getToken({ code, codeVerifier });
 
   if (!tokens.refresh_token) {
     s.stop("Failed.");
@@ -247,25 +306,23 @@ async function performOAuth(
   }
 
   s.stop("Authorized!");
-  return tokens.refresh_token;
+  const grantedScopes = tokens.scope?.split(/\s+/).filter(Boolean);
+  return {
+    refreshToken: tokens.refresh_token,
+    redirectUri,
+    scopes: grantedScopes?.length ? grantedScopes : scopes,
+  };
 }
 
 // ── Config output ────────────────────────────────────────────
 
 function getMcpConfigJson(
   name: string,
-  clientId: string,
-  clientSecret: string,
-  hasBuiltIn: boolean,
 ): string {
   const env: Record<string, string> = {
-    GOOGLE_DRIVE_PROFILE: name,
-    GOOGLE_DRIVE_SERVER_NAME: `google-workspace-${name}`,
+    GOOGLE_WORKSPACE_PROFILE: name,
+    GOOGLE_WORKSPACE_SERVER_NAME: `google-workspace-${name}`,
   };
-  if (!hasBuiltIn) {
-    env.GOOGLE_CLIENT_ID = clientId;
-    env.GOOGLE_CLIENT_SECRET = clientSecret;
-  }
   return JSON.stringify(
     {
       mcpServers: {
@@ -283,29 +340,19 @@ function getMcpConfigJson(
 
 function getClaudeCodeCmd(
   name: string,
-  clientId: string,
-  clientSecret: string,
-  hasBuiltIn: boolean,
 ): string {
   const envParts = [
-    `GOOGLE_DRIVE_PROFILE=${name}`,
-    `GOOGLE_DRIVE_SERVER_NAME=google-workspace-${name}`,
+    `GOOGLE_WORKSPACE_PROFILE=${name}`,
+    `GOOGLE_WORKSPACE_SERVER_NAME=google-workspace-${name}`,
   ];
-  if (!hasBuiltIn) {
-    envParts.push(`GOOGLE_CLIENT_ID=${clientId}`);
-    envParts.push(`GOOGLE_CLIENT_SECRET=${clientSecret}`);
-  }
   return `claude mcp add google-workspace-${name} -e ${envParts.join(" -e ")} -- npx -y ${PKG_NAME}`;
 }
 
 async function showAccountConfig(
   name: string,
-  clientId: string,
-  clientSecret: string,
-  hasBuiltIn: boolean,
 ): Promise<void> {
-  const mcpJson = getMcpConfigJson(name, clientId, clientSecret, hasBuiltIn);
-  const claudeCmd = getClaudeCodeCmd(name, clientId, clientSecret, hasBuiltIn);
+  const mcpJson = getMcpConfigJson(name);
+  const claudeCmd = getClaudeCodeCmd(name);
 
   clack.note(mcpJson, "MCP config (Claude Desktop / Air.dev / Cursor)");
   clack.note(claudeCmd, "Claude Code command");
@@ -340,35 +387,12 @@ async function showAccountConfig(
 async function resolveCredentials(): Promise<{
   clientId: string;
   clientSecret: string;
-  isBuiltIn: boolean;
 }> {
   // Env vars take priority (silent)
   const envId = process.env.GOOGLE_CLIENT_ID;
   const envSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (envId && envSecret) {
-    return { clientId: envId, clientSecret: envSecret, isBuiltIn: false };
-  }
-
-  // Check built-in defaults
-  const builtIn = loadBuiltInDefaults();
-
-  if (builtIn) {
-    const choice = await clack.select({
-      message: "How do you want to connect?",
-      options: [
-        {
-          value: "builtin",
-          label: "Use built-in credentials",
-          hint: "recommended",
-        },
-        { value: "own", label: "Use my own Google Cloud project" },
-      ],
-    });
-    if (cancelled(choice)) return null!;
-
-    if (choice === "builtin") {
-      return { ...builtIn, isBuiltIn: true };
-    }
+    return { clientId: envId, clientSecret: envSecret };
   }
 
   // Own credentials
@@ -397,10 +421,10 @@ async function resolveCredentials(): Promise<{
     const creds = extractCredentialsFromJson(clean);
     if (creds) {
       clack.log.success(`Loaded credentials from JSON file`);
-      return { ...creds, isBuiltIn: false };
+      return creds;
     }
-    clack.log.error("Could not parse JSON file.");
-    bail("Invalid credentials file.");
+    clack.log.error("Could not parse a Desktop OAuth client JSON file.");
+    bail("Invalid Desktop OAuth credentials file.");
   }
 
   // Manual entry
@@ -419,16 +443,40 @@ async function resolveCredentials(): Promise<{
   return {
     clientId: (clientId as string).trim(),
     clientSecret: (clientSecret as string).trim(),
-    isBuiltIn: false,
   };
+}
+
+async function chooseServices(
+  initialValues: readonly WorkspaceServiceId[] = WORKSPACE_SERVICE_IDS,
+): Promise<WorkspaceServiceId[]> {
+  const selected = await clack.multiselect({
+    message: "Which Google Workspace services should this profile access?",
+    options: WORKSPACE_SERVICE_IDS.map((value) => ({
+      value,
+      label: SERVICE_LABELS[value],
+    })),
+    initialValues: [...initialValues],
+    required: true,
+  });
+  if (cancelled(selected)) return [];
+  return selected as WorkspaceServiceId[];
+}
+
+async function revokeAccount(config: AppConfig): Promise<void> {
+  if (!config.refreshToken) return;
+  const client = new google.auth.OAuth2(
+    config.clientId,
+    config.clientSecret,
+    config.redirectUri,
+  );
+  await client.revokeToken(config.refreshToken);
 }
 
 // ── Main ─────────────────────────────────────────────────────
 
 export async function runSetup(): Promise<void> {
+  oauthPort();
   clack.intro("Google Workspace MCP — Setup");
-
-  const { clientId, clientSecret, isBuiltIn } = await resolveCredentials();
 
   // Account management loop
   while (true) {
@@ -438,11 +486,14 @@ export async function runSetup(): Promise<void> {
       value: string;
       label: string;
       hint?: string;
-    }> = accounts.map((name) => ({
-      value: `account:${name}`,
-      label: name,
-      hint: "configured",
-    }));
+    }> = accounts.map((name) => {
+      const services = loadAccount(name)?.services ?? LEGACY_SERVICE_IDS;
+      return {
+        value: `account:${name}`,
+        label: name,
+        hint: services.join(", "),
+      };
+    });
 
     const actionOptions: Array<{
       value: string;
@@ -497,24 +548,32 @@ export async function runSetup(): Promise<void> {
         .replace(/[^a-z0-9_-]/g, "-");
 
       if (accounts.includes(cleanName)) {
-        const overwrite = await clack.confirm({
-          message: `"${cleanName}" already exists. Re-authorize?`,
-        });
-        if (cancelled(overwrite) || !overwrite) continue;
+        clack.log.info(
+          `"${cleanName}" already exists. Select it and choose Re-authorize.`,
+        );
+        continue;
       }
 
       try {
-        const refreshToken = await performOAuth(clientId, clientSecret);
+        const services = await chooseServices();
+        const { clientId, clientSecret } = await resolveCredentials();
+        const authorization = await performOAuth(
+          clientId,
+          clientSecret,
+          services,
+        );
 
         saveAccount(cleanName, {
           clientId,
           clientSecret,
-          redirectUri: `http://localhost:${OAUTH_PORT}`,
-          refreshToken,
+          redirectUri: authorization.redirectUri,
+          refreshToken: authorization.refreshToken,
+          services,
+          scopes: authorization.scopes,
         });
 
         clack.log.success(`Account "${cleanName}" saved!`);
-        await showAccountConfig(cleanName, clientId, clientSecret, isBuiltIn);
+        await showAccountConfig(cleanName);
       } catch (err: unknown) {
         clack.log.error(err instanceof Error ? err.message : String(err));
       }
@@ -527,6 +586,10 @@ export async function runSetup(): Promise<void> {
     // ── Manage existing account ──
     const accountName = (choice as string).replace("account:", "");
     const cfg = loadAccount(accountName);
+    if (!cfg) {
+      clack.log.error(`Could not load account "${accountName}".`);
+      continue;
+    }
 
     const action = await clack.select({
       message: `Account: ${accountName}`,
@@ -543,18 +606,29 @@ export async function runSetup(): Promise<void> {
     });
     if (cancelled(action)) continue;
 
-    if (action === "config" && cfg) {
-      await showAccountConfig(accountName, cfg.clientId, cfg.clientSecret, isBuiltIn);
+    if (action === "config") {
+      const services = cfg.services ?? LEGACY_SERVICE_IDS;
+      clack.note(
+        services.map((service) => SERVICE_LABELS[service]).join("\n"),
+        "Enabled services",
+      );
+      await showAccountConfig(accountName);
     }
 
     if (action === "reauth") {
       try {
-        const refreshToken = await performOAuth(clientId, clientSecret);
+        const services = await chooseServices(cfg.services ?? LEGACY_SERVICE_IDS);
+        const authorization = await performOAuth(
+          cfg.clientId,
+          cfg.clientSecret,
+          services,
+        );
         saveAccount(accountName, {
-          clientId,
-          clientSecret,
-          redirectUri: `http://localhost:${OAUTH_PORT}`,
-          refreshToken,
+          ...cfg,
+          redirectUri: authorization.redirectUri,
+          refreshToken: authorization.refreshToken,
+          services,
+          scopes: authorization.scopes,
         });
         clack.log.success(`Account "${accountName}" re-authorized!`);
       } catch (err: unknown) {
@@ -567,6 +641,14 @@ export async function runSetup(): Promise<void> {
         message: `Delete "${accountName}"? This cannot be undone.`,
       });
       if (!cancelled(confirm) && confirm) {
+        try {
+          await revokeAccount(cfg);
+          clack.log.success("Google OAuth grant revoked.");
+        } catch (error: unknown) {
+          clack.log.warning(
+            `Could not revoke the Google token: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
         const p = accountPath(accountName);
         if (fs.existsSync(p)) fs.unlinkSync(p);
         clack.log.success(`Account "${accountName}" deleted.`);
@@ -581,5 +663,4 @@ export async function runSetup(): Promise<void> {
       : "No accounts configured. Run --setup again to add one.";
   console.log();
   clack.outro(msg);
-  process.exit(0);
 }

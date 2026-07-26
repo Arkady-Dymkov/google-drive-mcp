@@ -1,95 +1,79 @@
-# Google Drive MCP Server - Project Summary
+# Project summary
 
-## ✅ What's Included
+`adw-google-mcp` is a modular, multi-account Google Workspace MCP server for
+Drive, Docs, Sheets, Calendar, Gmail, Slides, People, and Chat. The live tool
+inventory is generated with `npm run tools`; this file deliberately does not
+duplicate a count that can become stale.
 
-### Core Files
-- `src/index.ts` - MCP server implementation (900+ lines)
-- `setup.mjs` - Interactive OAuth setup script
-- `package.json` - Dependencies and build scripts
-- `tsconfig.json` - TypeScript configuration
-- `README.md` - Complete user guide
-- `LICENSE` - MIT license
+## Current implementation
 
-### Tools Available (10 total)
+- Eight independently selectable services share one OAuth client and the MCP
+  service interface.
+- Profiles store their selected services and scopes. Older profiles retain the
+  original Drive, Docs, Sheets, Calendar, and Gmail default until re-authorized.
+- `GOOGLE_WORKSPACE_SERVICES` can override exposed services, while
+  `GOOGLE_WORKSPACE_TOOL_MODE=all|safe-write|read-only` controls mutation and
+  outbound-tool exposure.
+- MCP input schemas are compiled and enforced at runtime; duplicate tool names
+  fail at startup and results include structured content where available.
 
-1. **list_files** - List files and folders with pagination
-2. **search_files** - Search using Google Drive queries
-3. **read_file** - Read any file (with export for Google formats)
-4. **read_document** - Read Google Docs via API
-5. **read_restricted_document** ⭐ NEW - Read protected docs via mobilebasic endpoint
-6. **read_spreadsheet** - Read Google Sheets data
-7. **get_file_metadata** - Get detailed file information
-8. **create_document** - Create new Google Docs
-9. **create_folder** - Create new folders
-10. **upload_file** - Upload files to Drive
+## Google Docs Document tabs
 
-## 🚀 Setup Process
+The Docs service understands the Document tabs hierarchy shown in Google Docs:
 
-### For You (First Time)
-```bash
-npm install
-npm run build
-npm run setup
-```
+- list root and nested tabs with IDs, parents, depth, and position;
+- create, rename, reorder, reparent, decorate, and explicitly delete tabs;
+- read one tab or the complete document as text or Markdown;
+- target text, formatting, image, page-break, and paragraph edits by `tabId`;
+- discover and modify tables inside the correct tab, including cell content,
+  rows, columns, merges, styles, and pinned header rows; and
+- apply optional revision guards to avoid stale writes.
 
-Then configure Air.dev/Claude Desktop with the path shown after setup.
+Docs Developer Preview comment/suggestion mutations are not presented as
+stable tools. Suggested-edit rendering is available on reads, and Drive
+comments remain supported.
 
-### For Colleagues
-Same process - each person creates their own Google Cloud project and runs setup with their own OAuth JSON.
+## Added Workspace coverage
 
-## 🔧 Technical Details
+- Drive includes permissions, comments, shared drives, access proposals,
+  approvals, and long-running downloads.
+- Sheets includes native tables, batch value operations, smart chips,
+  protected ranges, conditional formatting, data validation, and automatic
+  resizing in addition to existing value and formatting tools.
+- Calendar includes calendar details, label/color support, and time
+  suggestions.
+- Gmail includes complete draft/thread operations, filters, history,
+  attachments, send-as identities, safe MIME generation, and metadata-first
+  listings.
+- Slides supports reading, creation, thumbnails, duplication, and raw batch
+  updates. People supports profiles, contacts, sync cursors, and directory
+  search. Chat supports spaces, messages, bounded local text search, and sends.
 
-### Authentication
-- OAuth2 with refresh tokens
-- Stored in `~/.google-drive-mcp/config.json`
-- Setup script handles browser OAuth flow automatically
-- No manual token copying required
+## Security and release posture
 
-### Special Features
-- **Restricted Document Access**: Uses `/mobilebasic` endpoint to read documents that can't be accessed via API
-- **Auto Token Refresh**: OAuth client handles token expiration automatically
-- **Error Handling**: Clear error messages guide users to solutions
+- Node.js 22 or newer is required.
+- Setup accepts only user-supplied Desktop OAuth credentials or setup-time
+  environment variables. No built-in credentials are distributed.
+- OAuth uses PKCE and state validation; selected services determine requested
+  scopes; local profile writes are atomic and permission-restricted; profile
+  deletion attempts token revocation.
+- Gmail content and attachments are bounded, MIME messages are library-built,
+  and returned body text is marked as untrusted. Chat data is likewise marked
+  as external content, threaded replies fail closed, and structured responses
+  are bounded.
+- CI builds and tests on supported Node versions. `npm run check` adds a
+  complete dependency audit, and prepack rejects embedded OAuth defaults.
+- Publishing is designed for npm trusted publishing with GitHub OIDC and
+  provenance. The npm package's trusted-publisher setting is a one-time
+  external prerequisite described in `PUBLISHING.md`.
 
-### Dependencies
-- `@modelcontextprotocol/sdk` - MCP protocol
-- `googleapis` - Google API client
-- `google-auth-library` - OAuth2 authentication
-- `cheerio` - HTML parsing for restricted docs
-- `node-fetch` - HTTP requests
-- `open` - Auto-open browser for OAuth
+## Validation boundary
 
-## 📝 What Was Removed
+Automated contract and mocked API tests verify tool registration, schemas,
+request construction, pagination, Document tabs, tables, and key security
+invariants. A live Google OAuth session and destructive tests against real
+Workspace data are intentionally outside the automated suite.
 
-Cleaned up unnecessary files:
-- ❌ Old script files (scripts/ folder)
-- ❌ Test files
-- ❌ Redundant documentation (SETUP.md, EXAMPLES.md, etc.)
-- ❌ Authentication tools from MCP (handled by setup.mjs now)
-
-## 🎯 Ready for Distribution
-
-The project is clean and ready to share with colleagues:
-- Simple setup process
-- Single README with all needed info
-- No confusing extra files
-- Each user gets their own credentials
-
-## 🔒 Security
-
-- Credentials stay local
-- No hardcoded secrets
-- OAuth2 best practices
-- .gitignore prevents accidental commits
-
-## 📊 Testing Completed
-
-✅ All 10 tools tested and working
-✅ OAuth flow tested
-✅ Restricted document reading verified
-✅ Integration with Air.dev confirmed
-
----
-
-**Status**: Production Ready ✅
-**Version**: 1.0.0
-**Last Updated**: Dec 23, 2024
+Google Chat requires a configured Chat app in the user's Cloud project. The
+unsupported `read_restricted_document` HTML fallback can break if Google
+changes its private page shape and should not replace the Docs API.

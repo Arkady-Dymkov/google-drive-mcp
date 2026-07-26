@@ -15,21 +15,29 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: "22"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
 
       # Set package version from git tag (v1.2.3 -> 1.2.3) or manual input
       - name: Set version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="${INPUT_VERSION#v}"
           else
             VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid stable semantic version: $VERSION" >&2
+            exit 1
           fi
           echo "Publishing version: $VERSION"
           CURRENT=$(node -p "require('./package.json').version")
@@ -41,15 +49,5 @@ jobs:
 
       - run: npm ci
 
-      - run: npm run build
-
-      # Inject OAuth credentials into the build output.
-      # Baked into the npm package so customers just run --setup and authorize.
-      # NOT in the git repo (build/ is gitignored), IS in the npm package.
-      - name: Inject OAuth defaults
-        run: |
-          echo '{"clientId":"${{ secrets.GOOGLE_CLIENT_ID }}","clientSecret":"${{ secrets.GOOGLE_CLIENT_SECRET }}"}' > build/defaults.json
-
-      - run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm run check
+      - run: npm publish --provenance --access public

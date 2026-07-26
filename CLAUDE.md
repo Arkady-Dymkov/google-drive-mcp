@@ -1,55 +1,62 @@
 # CLAUDE.md
 
-## Project Overview
+## Project overview
 
-Google Workspace MCP Server (`adw-google-mcp`) — connects AI assistants to Google Drive, Docs, Sheets, Calendar, and Gmail via the Model Context Protocol. 85 tools. Supports multiple Google accounts via profiles.
+`adw-google-mcp` is a local stdio MCP server for Google Drive, Docs, Sheets,
+Calendar, Gmail, Slides, People, and Chat. Profiles support multiple Google
+accounts and store OAuth credentials under `~/.config/google-drive-mcp/`.
+`GOOGLE_WORKSPACE_PROFILE` selects a profile; legacy `GOOGLE_DRIVE_PROFILE`
+remains supported.
 
-Distributed via npm: `npx adw-google-mcp --setup` to configure, `npx -y adw-google-mcp` to run.
+Run `npm run tools` for the authoritative generated tool inventory; do not copy a
+hard-coded total into documentation.
 
-## Build Commands
+## Commands
 
 ```bash
-npm install        # Install dependencies
-npm run build      # Compile TypeScript to build/
-npm run watch      # Watch mode compilation
-npm run setup      # Interactive account setup wizard
+npm install
+npm run build
+npm run test
+npm run check       # tests plus complete dependency audit
+npm run tools       # grouped tool inventory
+npm run setup
 ```
+
+Node 22 or newer is required. CI covers Node 22, 24, and 26.
 
 ## Architecture
 
-**Modular service-based architecture** in `src/`:
+| Path | Purpose |
+|---|---|
+| `src/index.ts` | CLI entry point |
+| `src/server.ts` | MCP registry, runtime schema validation, annotations, dispatch |
+| `src/auth.ts` | Profile paths, secure config persistence, OAuth client creation |
+| `src/setup.ts` | OAuth PKCE setup and profile management |
+| `src/scopes.ts` | Service IDs and least-privilege OAuth scope mapping |
+| `src/markdown.ts` | Markdown, HTML, and Google Docs conversion |
+| `src/types.ts` | Shared service and tool contracts |
+| `src/utils.ts` | Validation and response builders |
+| `src/services/*.ts` | One module per Google Workspace service |
+| `src/tests/*.test.ts` | Contract and mocked regression tests |
 
-| File | Purpose |
-|------|---------|
-| `index.ts` | CLI entry point (--setup / --help / server with TTY detection) |
-| `server.ts` | MCP server, collects tools from all services via Service interface |
-| `auth.ts` | Config path resolution, OAuth client creation |
-| `setup.ts` | Interactive setup wizard with @clack/prompts (account CRUD) |
-| `markdown.ts` | Markdown <-> HTML and Markdown <-> Google Docs JSON (zero deps) |
-| `types.ts` | Shared interfaces: Service, ToolDefinition, AppConfig |
-| `utils.ts` | Input validation, error formatting, response builders |
-| `services/drive.ts` | Google Drive (11 tools) |
-| `services/docs.ts` | Google Docs (15 tools) |
-| `services/sheets.ts` | Google Sheets (21 tools) |
-| `services/calendar.ts` | Google Calendar (14 tools) |
-| `services/gmail.ts` | Gmail (24 tools) |
+Google Docs operations must remain tab-aware. Read with `includeTabsContent` and
+carry `tabId` through locations, ranges, end-of-segment locations, table
+locations, and tab lifecycle requests.
 
-**Adding a new service:**
-1. Create `src/services/foo.ts` implementing the `Service` interface
-2. Register it in `server.ts` constructor's `this.services` array
-3. Add OAuth scope to `OAUTH_SCOPES` in `setup.ts`
+## Adding a service or tool
 
-**Multi-account:** `GOOGLE_DRIVE_PROFILE` env var selects `~/.config/google-drive-mcp/{name}.json`
+1. Implement the `Service` interface in `src/services/`.
+2. Register the service in `src/server.ts`.
+3. Add the service and OAuth scopes to `src/scopes.ts`.
+4. Add mocked contract/regression tests.
+5. Run `npm run check` and `npm run tools`.
 
-**Key dependencies:** googleapis, google-auth-library, @modelcontextprotocol/sdk, cheerio + turndown (restricted docs), @clack/prompts (setup UI)
+Every tool receives runtime JSON Schema validation, MCP annotations, and a
+structured object response through the server. Mutating handlers should still
+perform semantic validation and return useful Google API IDs/replies.
 
 ## Publishing
 
-Tag-triggered via GitHub Actions. See PUBLISHING.md for details.
-```bash
-git tag v1.0.0 && git push origin v1.0.0  # CI builds + injects OAuth defaults + publishes
-```
-
-## TypeScript
-
-Target: ES2022, Module: Node16, Strict mode. Source: `src/`, Output: `build/`
+Publishing is tag-triggered through GitHub Actions and npm trusted publishing.
+OAuth client credentials must never be added to the npm package. See
+`PUBLISHING.md`.

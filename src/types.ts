@@ -1,11 +1,11 @@
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  CallToolResult,
+  Tool,
+} from "@modelcontextprotocol/sdk/types.js";
 import type { OAuth2Client } from "google-auth-library";
+import type { WorkspaceServiceId } from "./scopes.js";
 
-export interface ToolResponse {
-  [key: string]: unknown;
-  content: Array<{ type: "text"; text: string }>;
-  isError?: boolean;
-}
+export type ToolResponse = CallToolResult;
 
 export interface ToolDefinition {
   tool: Tool;
@@ -22,4 +22,6 @@ export interface AppConfig {
   clientSecret: string;
   redirectUri: string;
   refreshToken?: string;
+  services?: WorkspaceServiceId[];
+  scopes?: string[];
 }
