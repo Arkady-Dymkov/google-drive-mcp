@@ -1,6 +1,6 @@
 {
   "name": "adw-google-mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Google Workspace MCP server for Drive, Docs, Sheets, Calendar, Gmail, Slides, People, and Chat.",
   "type": "module",
   "main": "build/index.js",
